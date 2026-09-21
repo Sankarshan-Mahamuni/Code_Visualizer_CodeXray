@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Code Execution Visualizer</title>
+
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+
+<div class="app">
+
+    <!-- ================= TOP BAR ================= -->
+    <header class="topbar">
+
+        <div class="brand">
+            <div class="brand-icon">&lt;/&gt;</div>
+
+            <div>
+                <h1>Code Execution Visualizer</h1>
+                <p>Execution flow • Memory • Call Stack</p>
+            </div>
+        </div>
+
+        <div class="top-actions">
+
+            <select id="languageSelect">
+                <option value="python">Python</option>
+                <option value="cpp">C++</option>
+                <option value="java">Java</option>
+            </select>
+
+            <button id="runBtn" class="run-btn">
+                ▶ Run Code
+            </button>
+
+        </div>
+
+    </header>
+
+
+    <!-- ================= MAIN ================= -->
+    <main class="main-container">
+
+        <!-- ================= TOP WORKSPACE ================= -->
+        <section class="workspace">
+
+            <!-- ================= CODE PANEL ================= -->
+            <section class="panel code-panel">
+
+                <div class="panel-header">
+
+                    <div class="panel-title">
+                        <span>Source Code</span>
+                        <span class="language-badge" id="languageBadge">
+                            Python
+                        </span>
+                    </div>
+
+                    <div class="line-indicator">
+                        Line <span id="currentLine">—</span>
+                    </div>
+
+                </div>
+
+
+                <div class="editor-wrapper">
+
+                    <!-- Line numbers -->
+                    <div id="lineNumbers" class="line-numbers"></div>
+
+                    <!-- Actual editable editor -->
+                    <textarea
+                        id="codeEditor"
+                        spellcheck="false"
+                        autocomplete="off"
+                        autocorrect="off"
+                        autocapitalize="off"
+                        wrap="off"
+                    ></textarea>
+
+                </div>
+
+            </section>
+
+
+            <!-- ================= MEMORY PANEL ================= -->
+            <section class="panel memory-panel">
+
+                <div class="panel-header">
+
+                    <div class="panel-title">
+                        <span>Memory Visualization</span>
+                    </div>
+
+                    <div class="memory-meta">
+                        <span id="memoryObjectCount">0 objects</span>
+                        <span class="separator">•</span>
+                        <span id="stepInfo">Step 0 / 0</span>
+                    </div>
+
+                </div>
+
+
+                <div id="memoryGraph" class="memory-graph">
+
+                    <div id="memoryEmpty" class="memory-empty">
+
+                        <div class="empty-icon">◎</div>
+
+                        <h3>No memory state</h3>
+
+                        <p>
+                            Run your program to visualize objects,
+                            references and memory changes.
+                        </p>
+
+                    </div>
+
+                    <svg id="memorySvg"></svg>
+
+                    <div id="memoryObjects"></div>
+
+                </div>
+
+            </section>
+
+        </section>
+
+
+        <!-- ================= EVENT BAR ================= -->
+        <section class="event-panel">
+
+            <div class="event-label">
+                CURRENT EVENT
+            </div>
+
+            <div id="eventType" class="event-type">
+                —
+            </div>
+
+            <div id="eventFunction" class="event-function">
+                —
+            </div>
+
+            <div id="eventDescription" class="event-description">
+                Run the program to begin execution.
+            </div>
+
+        </section>
+
+
+        <!-- ================= CONTROLS ================= -->
+        <section class="execution-controls">
+
+            <button id="prevBtn" class="control-btn">
+                ◀ Previous
+            </button>
+
+            <button id="playBtn" class="control-btn play">
+                ▶ Play
+            </button>
+
+            <button id="nextBtn" class="control-btn">
+                Next ▶
+            </button>
+
+            <button id="resetBtn" class="control-btn">
+                ↻ Reset
+            </button>
+
+        </section>
+
+
+        <!-- ================= BOTTOM PANELS ================= -->
+        <section class="bottom-grid">
+
+            <!-- CALL STACK -->
+            <section class="panel info-panel">
+
+                <div class="panel-header">
+                    <span class="panel-title">Call Stack</span>
+                </div>
+
+                <div id="callStack" class="panel-content">
+
+                    <div class="empty-panel">
+                        No active function calls.
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- VARIABLES -->
+            <section class="panel info-panel">
+
+                <div class="panel-header">
+                    <span class="panel-title">Variables</span>
+                </div>
+
+                <div id="variables" class="panel-content">
+
+                    <div class="empty-panel">
+                        No variables.
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- OUTPUT -->
+            <section class="panel info-panel output-panel">
+
+                <div class="panel-header">
+                    <span class="panel-title">Program Output</span>
+                </div>
+
+                <pre id="programOutput" class="output-content"></pre>
+
+            </section>
+
+        </section>
+
+    </main>
+
+</div>
+
+
+<script src="/app.js"></script>
+
+</body>
+</html>

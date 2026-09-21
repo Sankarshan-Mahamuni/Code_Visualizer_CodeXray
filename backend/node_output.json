@@ -1,0 +1,876 @@
+{
+  "success": true,
+  "events": [
+    {
+      "step": 0,
+      "line": 0,
+      "event": "FUNCTION_ENTER",
+      "function": "<module>",
+      "frameId": "f1",
+      "variables": {},
+      "references": {},
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        }
+      ],
+      "arguments": {}
+    },
+    {
+      "step": 1,
+      "line": 1,
+      "event": "LINE_EXECUTED",
+      "function": "<module>",
+      "frameId": "f1",
+      "variables": {},
+      "references": {},
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        }
+      ]
+    },
+    {
+      "step": 2,
+      "line": 1,
+      "event": "FUNCTION_ENTER",
+      "function": "Node",
+      "frameId": "f2",
+      "variables": {},
+      "references": {},
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f2",
+          "parentFrameId": "f1",
+          "function": "Node"
+        }
+      ],
+      "arguments": {}
+    },
+    {
+      "step": 3,
+      "line": 1,
+      "event": "LINE_EXECUTED",
+      "function": "Node",
+      "frameId": "f2",
+      "variables": {},
+      "references": {},
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f2",
+          "parentFrameId": "f1",
+          "function": "Node"
+        }
+      ]
+    },
+    {
+      "step": 4,
+      "line": 3,
+      "event": "LINE_EXECUTED",
+      "function": "Node",
+      "frameId": "f2",
+      "variables": {},
+      "references": {},
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f2",
+          "parentFrameId": "f1",
+          "function": "Node"
+        }
+      ]
+    },
+    {
+      "step": 5,
+      "line": 3,
+      "event": "FUNCTION_EXIT",
+      "function": "Node",
+      "frameId": "f2",
+      "variables": {},
+      "references": {},
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f2",
+          "parentFrameId": "f1",
+          "function": "Node"
+        }
+      ],
+      "returnValue": {
+        "type": "None",
+        "value": null
+      }
+    },
+    {
+      "step": 6,
+      "line": 9,
+      "event": "LINE_EXECUTED",
+      "function": "<module>",
+      "frameId": "f1",
+      "variables": {
+        "Node": {
+          "type": "class",
+          "name": "Node"
+        }
+      },
+      "references": {},
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        }
+      ]
+    },
+    {
+      "step": 7,
+      "line": 3,
+      "event": "FUNCTION_ENTER",
+      "function": "__init__",
+      "frameId": "f3",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_1"
+        },
+        "data": {
+          "type": "int",
+          "value": 10
+        }
+      },
+      "references": {
+        "self": "obj_1"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f3",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ],
+      "arguments": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_1"
+        },
+        "data": {
+          "type": "int",
+          "value": 10
+        }
+      }
+    },
+    {
+      "step": 8,
+      "line": 4,
+      "event": "LINE_EXECUTED",
+      "function": "__init__",
+      "frameId": "f3",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_1"
+        },
+        "data": {
+          "type": "int",
+          "value": 10
+        }
+      },
+      "references": {
+        "self": "obj_1"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f3",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ]
+    },
+    {
+      "step": 9,
+      "line": 5,
+      "event": "LINE_EXECUTED",
+      "function": "__init__",
+      "frameId": "f3",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_1"
+        },
+        "data": {
+          "type": "int",
+          "value": 10
+        }
+      },
+      "references": {
+        "self": "obj_1"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f3",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ]
+    },
+    {
+      "step": 10,
+      "line": 6,
+      "event": "LINE_EXECUTED",
+      "function": "__init__",
+      "frameId": "f3",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_1"
+        },
+        "data": {
+          "type": "int",
+          "value": 10
+        }
+      },
+      "references": {
+        "self": "obj_1"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f3",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ]
+    },
+    {
+      "step": 11,
+      "line": 6,
+      "event": "FUNCTION_EXIT",
+      "function": "__init__",
+      "frameId": "f3",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_1"
+        },
+        "data": {
+          "type": "int",
+          "value": 10
+        }
+      },
+      "references": {
+        "self": "obj_1"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f3",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ],
+      "returnValue": {
+        "type": "None",
+        "value": null
+      }
+    },
+    {
+      "step": 12,
+      "line": 10,
+      "event": "LINE_EXECUTED",
+      "function": "<module>",
+      "frameId": "f1",
+      "variables": {
+        "Node": {
+          "type": "class",
+          "name": "Node"
+        },
+        "root": {
+          "type": "Node",
+          "objectId": "obj_1"
+        }
+      },
+      "references": {
+        "root": "obj_1"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        }
+      ]
+    },
+    {
+      "step": 13,
+      "line": 3,
+      "event": "FUNCTION_ENTER",
+      "function": "__init__",
+      "frameId": "f4",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_2"
+        },
+        "data": {
+          "type": "int",
+          "value": 5
+        }
+      },
+      "references": {
+        "self": "obj_2"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f4",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ],
+      "arguments": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_2"
+        },
+        "data": {
+          "type": "int",
+          "value": 5
+        }
+      }
+    },
+    {
+      "step": 14,
+      "line": 4,
+      "event": "LINE_EXECUTED",
+      "function": "__init__",
+      "frameId": "f4",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_2"
+        },
+        "data": {
+          "type": "int",
+          "value": 5
+        }
+      },
+      "references": {
+        "self": "obj_2"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f4",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ]
+    },
+    {
+      "step": 15,
+      "line": 5,
+      "event": "LINE_EXECUTED",
+      "function": "__init__",
+      "frameId": "f4",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_2"
+        },
+        "data": {
+          "type": "int",
+          "value": 5
+        }
+      },
+      "references": {
+        "self": "obj_2"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f4",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ]
+    },
+    {
+      "step": 16,
+      "line": 6,
+      "event": "LINE_EXECUTED",
+      "function": "__init__",
+      "frameId": "f4",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_2"
+        },
+        "data": {
+          "type": "int",
+          "value": 5
+        }
+      },
+      "references": {
+        "self": "obj_2"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f4",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ]
+    },
+    {
+      "step": 17,
+      "line": 6,
+      "event": "FUNCTION_EXIT",
+      "function": "__init__",
+      "frameId": "f4",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_2"
+        },
+        "data": {
+          "type": "int",
+          "value": 5
+        }
+      },
+      "references": {
+        "self": "obj_2"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f4",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ],
+      "returnValue": {
+        "type": "None",
+        "value": null
+      }
+    },
+    {
+      "step": 18,
+      "line": 11,
+      "event": "LINE_EXECUTED",
+      "function": "<module>",
+      "frameId": "f1",
+      "variables": {
+        "Node": {
+          "type": "class",
+          "name": "Node"
+        },
+        "root": {
+          "type": "Node",
+          "objectId": "obj_1"
+        }
+      },
+      "references": {
+        "root": "obj_1"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        }
+      ]
+    },
+    {
+      "step": 19,
+      "line": 3,
+      "event": "FUNCTION_ENTER",
+      "function": "__init__",
+      "frameId": "f5",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_3"
+        },
+        "data": {
+          "type": "int",
+          "value": 20
+        }
+      },
+      "references": {
+        "self": "obj_3"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f5",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ],
+      "arguments": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_3"
+        },
+        "data": {
+          "type": "int",
+          "value": 20
+        }
+      }
+    },
+    {
+      "step": 20,
+      "line": 4,
+      "event": "LINE_EXECUTED",
+      "function": "__init__",
+      "frameId": "f5",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_3"
+        },
+        "data": {
+          "type": "int",
+          "value": 20
+        }
+      },
+      "references": {
+        "self": "obj_3"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f5",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ]
+    },
+    {
+      "step": 21,
+      "line": 5,
+      "event": "LINE_EXECUTED",
+      "function": "__init__",
+      "frameId": "f5",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_3"
+        },
+        "data": {
+          "type": "int",
+          "value": 20
+        }
+      },
+      "references": {
+        "self": "obj_3"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f5",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ]
+    },
+    {
+      "step": 22,
+      "line": 6,
+      "event": "LINE_EXECUTED",
+      "function": "__init__",
+      "frameId": "f5",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_3"
+        },
+        "data": {
+          "type": "int",
+          "value": 20
+        }
+      },
+      "references": {
+        "self": "obj_3"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f5",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ]
+    },
+    {
+      "step": 23,
+      "line": 6,
+      "event": "FUNCTION_EXIT",
+      "function": "__init__",
+      "frameId": "f5",
+      "variables": {
+        "self": {
+          "type": "Node",
+          "objectId": "obj_3"
+        },
+        "data": {
+          "type": "int",
+          "value": 20
+        }
+      },
+      "references": {
+        "self": "obj_3"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        },
+        {
+          "frameId": "f5",
+          "parentFrameId": "f1",
+          "function": "__init__"
+        }
+      ],
+      "returnValue": {
+        "type": "None",
+        "value": null
+      }
+    },
+    {
+      "step": 24,
+      "line": 13,
+      "event": "LINE_EXECUTED",
+      "function": "<module>",
+      "frameId": "f1",
+      "variables": {
+        "Node": {
+          "type": "class",
+          "name": "Node"
+        },
+        "root": {
+          "type": "Node",
+          "objectId": "obj_1"
+        }
+      },
+      "references": {
+        "root": "obj_1"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        }
+      ]
+    },
+    {
+      "step": 25,
+      "line": 14,
+      "event": "LINE_EXECUTED",
+      "function": "<module>",
+      "frameId": "f1",
+      "variables": {
+        "Node": {
+          "type": "class",
+          "name": "Node"
+        },
+        "root": {
+          "type": "Node",
+          "objectId": "obj_1"
+        }
+      },
+      "references": {
+        "root": "obj_1"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        }
+      ]
+    },
+    {
+      "step": 26,
+      "line": 15,
+      "event": "LINE_EXECUTED",
+      "function": "<module>",
+      "frameId": "f1",
+      "variables": {
+        "Node": {
+          "type": "class",
+          "name": "Node"
+        },
+        "root": {
+          "type": "Node",
+          "objectId": "obj_1"
+        }
+      },
+      "references": {
+        "root": "obj_1"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        }
+      ]
+    },
+    {
+      "step": 27,
+      "line": 15,
+      "event": "FUNCTION_EXIT",
+      "function": "<module>",
+      "frameId": "f1",
+      "variables": {
+        "Node": {
+          "type": "class",
+          "name": "Node"
+        },
+        "root": {
+          "type": "Node",
+          "objectId": "obj_1"
+        }
+      },
+      "references": {
+        "root": "obj_1"
+      },
+      "callStack": [
+        {
+          "frameId": "f1",
+          "parentFrameId": null,
+          "function": "<module>"
+        }
+      ],
+      "returnValue": {
+        "type": "None",
+        "value": null
+      }
+    }
+  ],
+  "objects": {
+    "obj_1": {
+      "type": "Node",
+      "fields": {
+        "data": {
+          "type": "int",
+          "value": 10
+        },
+        "left": "obj_2",
+        "right": "obj_3"
+      }
+    },
+    "obj_2": {
+      "type": "Node",
+      "fields": {
+        "data": {
+          "type": "int",
+          "value": 5
+        },
+        "left": null,
+        "right": null
+      }
+    },
+    "obj_3": {
+      "type": "Node",
+      "fields": {
+        "data": {
+          "type": "int",
+          "value": 20
+        },
+        "left": null,
+        "right": null
+      }
+    }
+  },
+  "references": {
+    "root": "obj_1"
+  },
+  "output": "10\n5\n20\n",
+  "error": null
+}
