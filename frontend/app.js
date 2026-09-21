@@ -430,51 +430,59 @@ print(fib(5))`;
       return;
     }
 
+    const nodes = new Map();
     const edges = [];
     const incoming = new Map();
-    const nodes = new Map();
 
     ids.forEach((id) => {
       const obj = objects[id] || {};
       const fields = obj.fields ?? obj.entries ?? {};
-      nodes.set(id, { id, type: obj.type || "object", fields });
+      nodes.set(id, {
+        id,
+        type: obj.type || "object",
+        fields
+      });
+
       Object.entries(fields).forEach(([key, value]) => {
-        const targetId = value && typeof value === "object" && value.objectId ? value.objectId : null;
-        if (!targetId || !nodes.has(targetId) && !ids.includes(targetId)) return;
-        edges.push({ from: id, to: targetId, label: key });
-        incoming.set(targetId, (incoming.get(targetId) || 0) + 1);
+        const target = value && typeof value === "object" && value.objectId ? value.objectId : null;
+        if (!target || !ids.includes(target)) return;
+        edges.push({ from: id, to: target, label: key });
+        incoming.set(target, (incoming.get(target) || 0) + 1);
       });
     });
 
     const roots = ids.filter(id => !incoming.has(id));
     const startIds = roots.length ? roots : ids;
-    const queue = startIds.map((id, index) => ({ id, depth: 0, index }));
     const seen = new Set();
     const pos = new Map();
 
-    while (queue.length) {
-      const current = queue.shift();
-      if (!current || seen.has(current.id)) continue;
-      seen.add(current.id);
-      const x = 30 + (current.index % 4) * 220 + current.depth * 18;
-      const y = 30 + Math.floor(current.index / 4) * 160 + current.depth * 130;
-      pos.set(current.id, { x, y });
-      const nextEdges = edges.filter(edge => edge.from === current.id);
-      nextEdges.forEach((edge, idx) => {
-        const childId = edge.to;
-        if (!nodes.has(childId) || seen.has(childId)) return;
-        queue.push({ id: childId, depth: current.depth + 1, index: idx + current.index });
+    const place = (id, depth, lane, offset = 0) => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      pos.set(id, {
+        x: 30 + depth * 250 + offset,
+        y: 30 + lane * 170
       });
-    }
+
+      const next = edges.filter(edge => edge.from === id);
+      next.forEach((edge, idx) => {
+        const childId = edge.to;
+        const childDepth = depth + 1;
+        const childLane = lane + idx;
+        place(childId, childDepth, childLane, idx > 0 ? 30 : 0);
+      });
+    };
+
+    startIds.forEach((id, idx) => place(id, 0, idx, 0));
 
     if (!pos.size) {
-      ids.forEach((id, index) => pos.set(id, { x: 30 + index * 230, y: 30 }));
+      ids.forEach((id, index) => pos.set(id, { x: 30 + index * 220, y: 30 }));
     }
 
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
-    const width = Math.max(700, ...Array.from(pos.values()).map(p => p.x + 220));
-    const height = Math.max(420, ...Array.from(pos.values()).map(p => p.y + 150));
+    const width = Math.max(900, ...Array.from(pos.values()).map(p => p.x + 220));
+    const height = Math.max(500, ...Array.from(pos.values()).map(p => p.y + 140));
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
 
     const defs = document.createElementNS(svgNS, "defs");
@@ -488,7 +496,7 @@ print(fib(5))`;
     marker.setAttribute("orient", "auto");
     const arrow = document.createElementNS(svgNS, "path");
     arrow.setAttribute("d", "M 0 0 L 12 6 L 0 12 z");
-    arrow.setAttribute("fill", "#72a9ff");
+    arrow.setAttribute("fill", "#79b8ff");
     marker.appendChild(arrow);
     defs.appendChild(marker);
     svg.appendChild(defs);
@@ -496,31 +504,32 @@ print(fib(5))`;
     edges.forEach(edge => {
       const a = pos.get(edge.from) || { x: 0, y: 0 };
       const b = pos.get(edge.to) || { x: 0, y: 0 };
-      const x1 = a.x + 140;
-      const y1 = a.y + 90;
-      const x2 = b.x + 80;
-      const y2 = b.y + 25;
+      const x1 = a.x + 150;
+      const y1 = a.y + 55;
+      const x2 = b.x + 20;
+      const y2 = b.y + 40;
+      const midX = (x1 + x2) / 2;
       const path = document.createElementNS(svgNS, "path");
-      const midY = (y1 + y2) / 2;
-      path.setAttribute("d", `M ${x1} ${y1} C ${x1} ${midY} ${x2} ${midY} ${x2} ${y2}`);
-      path.setAttribute("stroke", "#72a9ff");
-      path.setAttribute("stroke-width", "2.4");
+      path.setAttribute("d", `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`);
+      path.setAttribute("stroke", "#79b8ff");
+      path.setAttribute("stroke-width", "2.2");
       path.setAttribute("fill", "none");
       path.setAttribute("marker-end", "url(#memoryArrow)");
       svg.appendChild(path);
 
       const label = document.createElementNS(svgNS, "text");
-      label.setAttribute("x", (x1 + x2) / 2);
-      label.setAttribute("y", midY - 8);
+      label.setAttribute("x", midX);
+      label.setAttribute("y", Math.min(y1, y2) - 8);
       label.setAttribute("text-anchor", "middle");
       label.setAttribute("font-size", "10");
-      label.setAttribute("fill", "#d7e9ff");
+      label.setAttribute("fill", "#d9ecff");
       label.textContent = edge.label;
       svg.appendChild(label);
     });
+
     graph.appendChild(svg);
 
-    ids.forEach(id => {
+    ids.forEach((id) => {
       const node = nodes.get(id);
       const placement = pos.get(id) || { x: 30, y: 30 };
       const fields = Object.entries(node.fields || {}).slice(0, 6);
@@ -528,7 +537,15 @@ print(fib(5))`;
       card.className = "memory-node";
       card.style.left = `${placement.x}px`;
       card.style.top = `${placement.y}px`;
-      card.innerHTML = `<h4>${esc(node.type)}</h4><div class="memory-fields">${fields.length ? fields.map(([key, value]) => `<div class="field"><span>${esc(key)}</span><strong>${esc(valueText(value))}</strong></div>`).join("") : '<div class="field"><span>empty</span><strong>—</strong></div>'}</div>`;
+      card.innerHTML = `
+        <div class="memory-node-header">
+          <span>${esc(node.type)}</span>
+          <small>${esc(id)}</small>
+        </div>
+        <div class="memory-fields">
+          ${fields.length ? fields.map(([key, value]) => `<div class="field"><span>${esc(key)}</span><strong>${esc(valueText(value))}</strong></div>`).join("") : '<div class="field"><span>empty</span><strong>—</strong></div>'}
+        </div>
+      `;
       graph.appendChild(card);
     });
   }
