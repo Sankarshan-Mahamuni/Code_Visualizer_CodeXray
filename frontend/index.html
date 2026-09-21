@@ -48,6 +48,11 @@
       <div class="panel-head visual-head">
         <div><b>Execution Canvas</b><span id="statusBadge" class="badge">READY</span></div>
         <div class="head-actions">
+          <div class="view-tabs">
+            <button id="executionViewBtn" class="tool small active" data-view="execution">Execution</button>
+            <button id="memoryViewBtn" class="tool small" data-view="memory">Memory</button>
+            <button id="splitViewBtn" class="tool small" data-view="split">Split</button>
+          </div>
           <button id="stackBtn" class="tool small">Stack</button>
           <button id="memoryBtn" class="tool small">Memory</button>
           <button id="maxBtn" class="tool small">⛶</button>
@@ -56,47 +61,66 @@
 
       <div class="action">
         <span id="eventType" class="event-tag">READY</span>
-        <div>
+        <div class="event-copy">
           <b id="eventTitle">Run code to begin</b>
           <small id="eventDetail">The execution canvas will grow with the actual execution.</small>
         </div>
       </div>
 
-      <div id="viewport" class="viewport">
-        <div id="world" class="world">
-          <svg id="edges" class="edges">
-            <defs>
-              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
-                      markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                <path d="M 0 0 L 10 5 L 0 10 z"></path>
-              </marker>
-            </defs>
-            <g id="edgeLayer"></g>
-          </svg>
-          <div id="nodeLayer" class="node-layer"></div>
-          <div id="memoryLayer" class="memory-layer"></div>
+      <div class="meta-panel">
+        <div class="mini-card">
+          <div class="mini-label">Line</div>
+          <strong id="lineBadge">—</strong>
+        </div>
+        <div class="mini-card wide-card">
+          <div class="mini-label">Variables</div>
+          <div id="liveVariables" class="var-list"><span>—</span></div>
+        </div>
+      </div>
+
+      <div class="viewport-shell">
+        <div id="executionView" class="view-panel">
+          <div id="viewport" class="viewport">
+            <div id="world" class="world">
+              <svg id="edges" class="edges">
+                <defs>
+                  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                          markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z"></path>
+                  </marker>
+                </defs>
+                <g id="edgeLayer"></g>
+              </svg>
+              <div id="nodeLayer" class="node-layer"></div>
+              <div id="memoryLayer" class="memory-layer"></div>
+            </div>
+
+            <div id="empty" class="empty">
+              <div class="empty-icon">◎</div>
+              <b>Execution canvas</b>
+              <span>Run code, then step through it.</span>
+              <small>Wheel = pan · Ctrl+wheel = zoom · Middle drag = pan · F = focus · 0 = fit</small>
+            </div>
+
+            <div class="hud">
+              <button id="hudZoomOut">−</button>
+              <span id="hudZoom">100%</span>
+              <button id="hudZoomIn">+</button>
+              <button id="hudFit">Fit</button>
+            </div>
+
+            <aside id="stackOverlay" class="overlay hidden">
+              <b>Call Stack</b><div id="stackContent"></div>
+            </aside>
+            <aside id="memoryOverlay" class="overlay hidden">
+              <b>Memory</b><div id="memoryContent"></div>
+            </aside>
+          </div>
         </div>
 
-        <div id="empty" class="empty">
-          <div class="empty-icon">◎</div>
-          <b>Execution canvas</b>
-          <span>Run code, then step through it.</span>
-          <small>Wheel = pan · Ctrl+wheel = zoom · Middle drag = pan · F = focus · 0 = fit</small>
+        <div id="memoryView" class="view-panel hidden">
+          <div id="memoryGraph" class="memory-graph"></div>
         </div>
-
-        <div class="hud">
-          <button id="hudZoomOut">−</button>
-          <span id="hudZoom">100%</span>
-          <button id="hudZoomIn">+</button>
-          <button id="hudFit">Fit</button>
-        </div>
-
-        <aside id="stackOverlay" class="overlay hidden">
-          <b>Call Stack</b><div id="stackContent"></div>
-        </aside>
-        <aside id="memoryOverlay" class="overlay hidden">
-          <b>Memory</b><div id="memoryContent"></div>
-        </aside>
       </div>
 
       <div class="timeline">
