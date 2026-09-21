@@ -52,22 +52,45 @@ def get_object_id(obj):
 # CHECK USER OBJECT
 # ============================================================
 
+def should_track_object(value):
+    """
+    Return True only for values that should appear as tracked heap
+    objects in the memory visualization.
+    """
+
+    if value is None:
+        return False
+
+    if isinstance(value, (bool, int, float, str)):
+        return False
+
+    if isinstance(value, (dict, list, tuple)):
+        return True
+
+    if isinstance(value, type):
+        return False
+
+    if inspect.isfunction(value):
+        return False
+
+    if inspect.ismethod(value):
+        return False
+
+    if inspect.isbuiltin(value):
+        return False
+
+    if inspect.ismodule(value):
+        return False
+
+    if callable(value):
+        return False
+
+    return hasattr(value, "__dict__")
+
+
 def is_user_object(value):
     """
-    Returns True only for actual user-created objects.
-
-    We do NOT treat:
-    - int
-    - float
-    - str
-    - list
-    - tuple
-    - dict
-    - functions
-    - classes
-    - modules
-
-    as visualization objects.
+    Returns True only for actual user-defined objects.
     """
 
     if value is None:
@@ -89,6 +112,9 @@ def is_user_object(value):
         return False
 
     if inspect.ismodule(value):
+        return False
+
+    if callable(value):
         return False
 
     return hasattr(value, "__dict__")
@@ -215,7 +241,7 @@ def refresh_object(obj):
 
 def refresh_objects_from_frame(frame):
     """
-    Find user-defined objects in the current frame
+    Find tracked objects in the current frame
     and update the object registry.
     """
 
@@ -224,7 +250,15 @@ def refresh_objects_from_frame(frame):
         if name.startswith("__"):
             continue
 
-        if is_user_object(value):
+        if should_track_object(value):
+            refresh_object(value)
+
+    for name, value in frame.f_globals.items():
+
+        if name.startswith("__"):
+            continue
+
+        if should_track_object(value):
             refresh_object(value)
 
 
@@ -291,17 +325,8 @@ def get_value(value):
             "value": value
         }
 
-    # User-defined object
-    if is_user_object(value):
-
-        object_id = register_object(value)
-
-        return {
-            "type": type(value).__name__,
-            "objectId": object_id
-        }
-     # Track containers as memory objects
-    if isinstance(value, (list, tuple, dict)):
+    # Track containers and user-defined objects as memory objects.
+    if should_track_object(value):
 
         object_id = register_object(value)
 
@@ -382,7 +407,7 @@ def get_references(frame):
         if name.startswith("__"):
             continue
 
-        if is_user_object(value):
+        if should_track_object(value):
 
             references[name] = get_object_id(value)
 
@@ -402,7 +427,8 @@ def get_stack():
         stack.append({
             "frameId": frame["frameId"],
             "parentFrameId": frame["parentFrameId"],
-            "function": frame["function"]
+            "function": frame["function"],
+            "arguments": frame.get("arguments", {})
         })
 
     return stack
@@ -416,23 +442,22 @@ def add_event(event_type, frame, line=None, extra=None):
 
     global step
 
-    # VERY IMPORTANT:
-    for name, value in frame.f_globals.items():
+    # Refresh tracked objects from both local and global namespaces so the
+    # event snapshot reflects the exact in-memory state at this execution step.
+    for namespace in (frame.f_locals, frame.f_globals):
 
-        if name.startswith("__"):
-            continue
+        for name, value in namespace.items():
 
-        try:
+            if name.startswith("__"):
+                continue
 
-            if (
-                isinstance(value, (dict, list, tuple))
-                or hasattr(value, "__dict__")
-            ):
+            try:
 
-                refresh_object(value)
+                if should_track_object(value):
+                    refresh_object(value)
 
-        except Exception:
-            pass
+            except Exception:
+                pass
 
     # Update objects BEFORE taking the variable snapshot.
     refresh_objects_from_frame(frame)
@@ -652,7 +677,16 @@ def trace_function(frame, event, arg):
 
             "parentFrameId": parent_id,
 
-            "function": frame.f_code.co_name
+            "function": frame.f_code.co_name,
+
+            "arguments": {
+                name: get_value(value)
+
+                for name, value
+                in frame.f_locals.items()
+
+                if not name.startswith("__")
+            }
         }
 
         call_stack.append(frame_info)

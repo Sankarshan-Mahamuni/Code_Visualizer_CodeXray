@@ -1,1739 +1,493 @@
-/* =========================================================
-   STATE
-========================================================= */
+(() => {
+  const DEFAULT_CODE = `def fib(n):
+    if n <= 1:
+        return n
 
-let executionData = null;
-let currentStep = 0;
-let isPlaying = false;
-let playTimer = null;
+    left = fib(n - 1)
+    right = fib(n - 2)
+    return left + right
 
+print(fib(5))`;
 
-/* =========================================================
-   DOM
-========================================================= */
+  const $ = id => document.getElementById(id);
+  const state = {
+    events: [], step: 0, output: "", playing: false, timer: null,
+    frames: new Map(), positions: new Map(),
+    zoom: 1, panX: 0, panY: 0, follow: true, panning: false,
+    space: false, max: false
+  };
 
-const codeEditor =
-    document.getElementById("codeEditor");
+  const el = {
+    code:$("codeInput"), gutter:$("gutter"), lineHighlight:$("lineHighlight"), currentLine:$("currentLine"),
+    run:$("runBtn"), language:$("language"), viewport:$("viewport"), world:$("world"),
+    edges:$("edges"), edgeLayer:$("edgeLayer"), nodes:$("nodeLayer"), memoryLayer:$("memoryLayer"),
+    empty:$("empty"), eventType:$("eventType"), eventTitle:$("eventTitle"), eventDetail:$("eventDetail"),
+    status:$("statusBadge"), stepText:$("stepText"), timelineEvent:$("timelineEvent"), range:$("range"),
+    prev:$("prevBtn"), next:$("nextBtn"), play:$("playBtn"), reset:$("resetBtn"), output:$("output"), error:$("error"),
+    zoomLabel:$("zoomLabel"), hudZoom:$("hudZoom"), follow:$("followToggle"), visual:$("visualPanel"),
+    fit:$("fitBtn"), focus:$("focusBtn"), zoomIn:$("zoomIn"), zoomOut:$("zoomOut"),
+    hudFit:$("hudFit"), hudZoomIn:$("hudZoomIn"), hudZoomOut:$("hudZoomOut"),
+    max:$("maxBtn"), stackBtn:$("stackBtn"), memoryBtn:$("memoryBtn"),
+    stackOverlay:$("stackOverlay"), memoryOverlay:$("memoryOverlay"),
+    stackContent:$("stackContent"), memoryContent:$("memoryContent")
+  };
 
-const lineNumbers =
-    document.getElementById("lineNumbers");
+  el.code.value = DEFAULT_CODE;
 
-const languageSelect =
-    document.getElementById("languageSelect");
+  const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
 
-const languageBadge =
-    document.getElementById("languageBadge");
+  function valueText(v) {
+    if (v === null || v === undefined) return "None";
+    if (typeof v !== "object") return String(v);
+    if ("value" in v) return v.value === null ? "None" : String(v.value);
+    if (v.objectId) return "→ " + v.objectId;
+    if (v.type) return `<${v.type}>`;
+    return String(v);
+  }
 
-const runBtn =
-    document.getElementById("runBtn");
+  function stackOf(e) {
+    return Array.isArray(e?.callStack) ? e.callStack.map((x, i) => ({
+      id:String(x?.frameId ?? `stack_${i}`),
+      fn:String(x?.function ?? "<module>")
+    })).filter(x => x.id) : [];
+  }
 
-const currentLine =
-    document.getElementById("currentLine");
+  function activeFrameId(e) {
+    if (!e) return "";
+    if (e.frameId) return String(e.frameId);
+    const s = stackOf(e);
+    return s.length ? s[s.length - 1].id : "";
+  }
 
-const stepInfo =
-    document.getElementById("stepInfo");
+  function makeArgs(e) {
+    const vars = e?.variables && typeof e.variables === "object" ? e.variables : {};
+    const out = {};
+    for (const [k,v] of Object.entries(vars)) {
+      if (k.startsWith("__") || k === "self") continue;
+      out[k] = valueText(v);
+    }
+    return out;
+  }
 
-const memoryObjectCount =
-    document.getElementById("memoryObjectCount");
+  /*
+    IMPORTANT:
+    Frames are reconstructed ONLY from events <= current step.
+    A future FUNCTION_ENTER cannot appear before that step.
+  */
+  function reconstructFrames(step) {
+    const frames = new Map();
 
-const memoryGraph =
-    document.getElementById("memoryGraph");
+    const ensure = (id, e, firstStep) => {
+      if (!id) return null;
+      if (!frames.has(id)) {
+        frames.set(id, {
+          id, fn:String(e?.function ?? "<module>"), parentId:null,
+          firstStep, lastStep:firstStep, enterStep:null, exitStep:null,
+          line:Number(e?.line || 0), args:{}, vars:{}, status:"WAITING",
+          returnValue:"", lastEvent:""
+        });
+      }
+      return frames.get(id);
+    };
 
-const memoryObjects =
-    document.getElementById("memoryObjects");
+    for (let i=0; i<=step && i<state.events.length; i++) {
+      const e = state.events[i];
+      const stack = stackOf(e);
 
-const memorySvg =
-    document.getElementById("memorySvg");
-
-const memoryEmpty =
-    document.getElementById("memoryEmpty");
-
-const eventType =
-    document.getElementById("eventType");
-
-const eventFunction =
-    document.getElementById("eventFunction");
-
-const eventDescription =
-    document.getElementById("eventDescription");
-
-const callStack =
-    document.getElementById("callStack");
-
-const variables =
-    document.getElementById("variables");
-
-const programOutput =
-    document.getElementById("programOutput");
-
-const prevBtn =
-    document.getElementById("prevBtn");
-
-const playBtn =
-    document.getElementById("playBtn");
-
-const nextBtn =
-    document.getElementById("nextBtn");
-
-const resetBtn =
-    document.getElementById("resetBtn");
-
-
-/* =========================================================
-   DEFAULT CODE
-========================================================= */
-
-const defaultPythonCode = `class Node:
-    def __init__(self, data):
-        self.data = data
-        self.left = None
-        self.right = None
-
-root = Node(10)
-root.left = Node(5)
-root.right = Node(20)
-
-print(root.data)
-print(root.left.data)
-print(root.right.data)
-`;
-
-codeEditor.value = defaultPythonCode;
-
-
-/* =========================================================
-   LINE NUMBERS
-========================================================= */
-
-function updateLineNumbers(activeLine = null) {
-
-    const lines =
-        codeEditor.value.split("\n");
-
-    lineNumbers.innerHTML = "";
-
-    lines.forEach((_, index) => {
-
-        const number =
-            document.createElement("div");
-
-        number.className = "line-number";
-
-        const line = index + 1;
-
-        if (line === activeLine) {
-            number.classList.add("active");
+      // Create frames from the actual runtime stack at this historical step.
+      stack.forEach((s, idx) => {
+        const f = ensure(s.id, e, i);
+        if (!f) return;
+        f.fn = s.fn || f.fn;
+        f.lastStep = i;
+        if (e.line) f.line = Number(e.line);
+        if (idx === stack.length - 1) {
+          f.args = makeArgs(e);
+          f.vars = e.variables || {};
+          f.lastEvent = String(e.event || "");
         }
+      });
 
-        number.textContent = line;
+      const id = activeFrameId(e);
+      const f = ensure(id, e, i);
+      if (f) {
+        f.lastStep = i;
+        f.fn = String(e.function ?? f.fn);
+        f.line = Number(e.line || f.line);
+        f.args = makeArgs(e);
+        f.vars = e.variables || {};
+        f.lastEvent = String(e.event || "");
+        if (e.event === "FUNCTION_ENTER") f.enterStep = f.enterStep ?? i;
+        if (e.event === "FUNCTION_EXIT") {
+          f.exitStep = i;
+          const rv = e.returnValue ?? e.returnedValue ?? e.return_value ?? e.value;
+          if (rv !== undefined) f.returnValue = valueText(rv);
+        }
+      }
 
-        lineNumbers.appendChild(number);
+      // Parent links from the actual runtime stack.
+      for (let j=1;j<stack.length;j++) {
+        const child = frames.get(stack[j].id);
+        const parent = frames.get(stack[j-1].id);
+        if (child && parent) child.parentId = parent.id;
+      }
+    }
+
+    // If a frame was explicitly entered/exited, use those events to update exact lifecycle.
+    for (let i=0;i<=step && i<state.events.length;i++) {
+      const e=state.events[i], id=activeFrameId(e), f=frames.get(id);
+      if (!f) continue;
+      if (e.event === "FUNCTION_ENTER") f.enterStep = f.enterStep ?? i;
+      if (e.event === "FUNCTION_EXIT") {
+        f.exitStep = i;
+        const rv=e.returnValue ?? e.returnedValue ?? e.return_value ?? e.value;
+        if (rv !== undefined) f.returnValue=valueText(rv);
+      }
+    }
+
+    const active = activeFrameId(state.events[step]);
+    for (const f of frames.values()) {
+      if (f.exitStep !== null && f.exitStep <= step) f.status = "RETURNED";
+      else if (f.id === active) f.status = "ACTIVE";
+      else f.status = "WAITING";
+    }
+    return frames;
+  }
+
+  function buildChildren() {
+    for (const f of state.frames.values()) f.children = [];
+    for (const f of state.frames.values()) {
+      if (f.parentId && state.frames.has(f.parentId)) state.frames.get(f.parentId).children.push(f.id);
+    }
+    for (const f of state.frames.values()) {
+      f.children.sort((a,b) => state.frames.get(a).firstStep - state.frames.get(b).firstStep);
+    }
+  }
+
+  function branchLabel(parent, child, index) {
+    const line = sourceLine(parent.line).trim();
+    if (parent.children.length < 2) return "CALL";
+    if (/left\\s*=/.test(line)) return index===0 ? "LEFT" : "RIGHT";
+    if (/right\\s*=/.test(line)) return index===0 ? "RIGHT" : "LEFT";
+    if (/[+*/-]/.test(line)) return index===0 ? "LEFT" : "RIGHT";
+    return `BRANCH ${index+1}`;
+  }
+
+  function sourceLine(n) {
+    const lines=el.code.value.split("\n");
+    return lines[Math.max(0, Number(n||1)-1)] || "";
+  }
+
+  function layout() {
+    state.positions.clear();
+    const roots=[...state.frames.values()].filter(f=>!f.parentId || !state.frames.has(f.parentId))
+      .sort((a,b)=>a.firstStep-b.firstStep);
+
+    const NODE_W=240, XGAP=55, YGAP=70;
+    let cursor=0;
+
+    function walk(id, depth) {
+      const f=state.frames.get(id);
+      const children=f.children || [];
+      if (!children.length) {
+        const x=cursor*(NODE_W+XGAP);
+        cursor++;
+        state.positions.set(id,{x,y:depth*(155+YGAP)});
+        return x;
+      }
+      const xs=children.map(c=>walk(c,depth+1));
+      const x=(xs[0]+xs[xs.length-1])/2;
+      state.positions.set(id,{x,y:depth*(155+YGAP)});
+      return x;
+    }
+    roots.forEach(r=>walk(r.id,0));
+  }
+
+  function frameHtml(f) {
+    const args=Object.entries(f.args||{}).filter(([k])=>!k.startsWith("__"));
+    const argsText=args.length ? args.map(([k,v])=>`${k}=${v}`).join(", ") : "arguments unavailable";
+    const active=f.status==="ACTIVE";
+    let note=active ? `Executing line ${f.line}` :
+      f.status==="RETURNED" ? "Invocation completed" : "Waiting for child";
+    if (f.returnValue) note += `<div class="return">↩ returned ${esc(f.returnValue)}</div>`;
+    return `<div class="frame ${f.status.toLowerCase()} ${active?"active":""}" data-frame="${esc(f.id)}">
+      <div class="frame-head"><span class="frame-name">${esc(f.fn)}()</span><span class="state">${f.status}</span></div>
+      <div class="args"><b>arguments</b><br>${esc(argsText)}</div>
+      <div class="meta"><span>frame ${esc(f.id)}</span><span>line ${f.line}</span></div>
+      <div class="note">${note}</div>
+    </div>`;
+  }
+
+  function renderFrames() {
+    el.nodes.innerHTML="";
+    const frag=document.createDocumentFragment();
+    for (const f of state.frames.values()) {
+      const p=state.positions.get(f.id); if(!p) continue;
+      const d=document.createElement("div");
+      d.className="frame-host";
+      d.style.cssText=`position:absolute;left:${p.x}px;top:${p.y}px;width:240px;height:155px`;
+      d.innerHTML=frameHtml(f);
+      d.querySelector(".frame").addEventListener("dblclick",()=>focusFrame(f.id));
+      frag.appendChild(d);
+    }
+    el.nodes.appendChild(frag);
+  }
+
+  function renderEdges() {
+    const pts=[...state.positions.values()];
+    const maxX=Math.max(1000,...pts.map(p=>p.x+240));
+    const maxY=Math.max(700,...pts.map(p=>p.y+170));
+    el.edges.setAttribute("width",maxX);
+    el.edges.setAttribute("height",maxY);
+    el.edgeLayer.innerHTML="";
+    const ns="http://www.w3.org/2000/svg";
+    const active=activeFrameId(state.events[state.step]);
+
+    for (const parent of state.frames.values()) {
+      const a=state.positions.get(parent.id); if(!a) continue;
+      parent.children.forEach((cid,index)=>{
+        const child=state.frames.get(cid), b=state.positions.get(cid);
+        if(!child||!b) return;
+        const x1=a.x+120,y1=a.y+155,x2=b.x+120,y2=b.y;
+        const mid=(y1+y2)/2;
+        const path=document.createElementNS(ns,"path");
+        path.setAttribute("d",`M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}`);
+        if(parent.id===active||child.id===active) path.classList.add("active");
+        el.edgeLayer.appendChild(path);
+        const t=document.createElementNS(ns,"text");
+        t.setAttribute("x",(x1+x2)/2); t.setAttribute("y",mid-5); t.setAttribute("text-anchor","middle");
+        t.textContent=branchLabel(parent,child,index); el.edgeLayer.appendChild(t);
+      });
+    }
+  }
+
+  function renderMemory(e) {
+    el.memoryLayer.innerHTML="";
+    const objects=e?.objects||{};
+    const ids=Object.keys(objects);
+    if(!ids.length) return;
+
+    // Put memory below the execution tree.
+    const ys=Math.max(520,...[...state.positions.values()].map(p=>p.y+180));
+    ids.forEach((id,i)=>{
+      const obj=objects[id]||{};
+      const d=document.createElement("div");
+      d.className="memory-card";
+      d.style.left=`${i*240}px`; d.style.top=`${ys}px`;
+      const rows=[];
+      const source=obj.fields ?? obj.entries;
+      if(source && typeof source==="object") {
+        for(const [k,v] of Object.entries(source))
+          rows.push(`<div class="memory-row"><span>${esc(k)}</span><span>${esc(valueText(v))}</span></div>`);
+      } else if(Array.isArray(obj.items)) {
+        obj.items.forEach((v,j)=>rows.push(`<div class="memory-row"><span>${j}</span><span>${esc(valueText(v))}</span></div>`));
+      }
+      d.innerHTML=`<div class="memory-head"><span>${esc(obj.type||"object")}</span><span class="memory-id">${esc(id)}</span></div>${rows.join("")||'<div class="memory-row"><span>empty</span><span>—</span></div>'}`;
+      el.memoryLayer.appendChild(d);
     });
+  }
 
-    syncEditorScroll();
-}
-
-
-/* =========================================================
-   EDITOR SCROLL
-========================================================= */
-
-function syncEditorScroll() {
-
-    lineNumbers.scrollTop =
-        codeEditor.scrollTop;
-}
-
-
-codeEditor.addEventListener(
-    "scroll",
-    syncEditorScroll
-);
-
-
-/* =========================================================
-   EDITOR INPUT
-========================================================= */
-
-codeEditor.addEventListener(
-    "input",
-    () => {
-
-        /*
-         * User is editing the source.
-         * Clear previous execution because it no longer
-         * represents the current code.
-         */
-
-        if (executionData) {
-
-            executionData = null;
-            currentStep = 0;
-
-            stopPlaying();
-
-            resetVisualization();
-        }
-
-        updateLineNumbers();
+  function renderAction(e) {
+    if(!e) {
+      el.eventType.textContent="READY"; el.eventTitle.textContent="Run code to begin";
+      el.eventDetail.textContent="The execution canvas will grow with the actual execution.";
+      el.status.textContent="READY"; return;
     }
-);
+    const type=String(e.event||"LINE_EXECUTED"), fn=String(e.function||"<module>"), line=e.line||"—";
+    el.eventType.textContent=type; el.status.textContent=`STEP ${state.step+1}`;
+    let title=`${fn} · line ${line}`, detail="";
+    if(type==="FUNCTION_ENTER") detail=`Called ${fn}(${formatArgs(e)})`;
+    else if(type==="FUNCTION_EXIT") detail=`${fn} returned ${valueText(e.returnValue??e.returnedValue??e.value)}`;
+    else if(type==="CONDITION_EVALUATED") detail=`${e.condition || "Condition"} → ${e.result ?? e.value ?? "evaluated"}`;
+    else if(type==="MEMORY_WRITE") detail=`Memory write: ${e.key!==undefined?valueText(e.key):""} ${e.value!==undefined?"→ "+valueText(e.value):""}`;
+    else if(type==="CACHE_HIT") detail="Cached value found.";
+    else if(type==="CACHE_MISS") detail="Cached value not found.";
+    else detail=`Executed line ${line}.`;
+    el.eventTitle.textContent=title; el.eventDetail.textContent=detail;
+  }
 
+  function formatArgs(e) {
+    const a=makeArgs(e);
+    return Object.entries(a).map(([k,v])=>`${k}=${v}`).join(", ") || "no arguments";
+  }
 
-/* =========================================================
-   TAB SUPPORT
-========================================================= */
+  function updateSource(e) {
+    const line=Number(e?.line||0);
+    el.currentLine.textContent=line||"—";
+    const lines=el.code.value.split("\n");
+    el.gutter.innerHTML=lines.map((_,i)=>`<div class="${i+1===line?"active":""}">${i+1}</div>`).join("");
+    if(!line){el.lineHighlight.style.display="none";return;}
+    el.lineHighlight.style.display="block";
+    el.lineHighlight.style.top=`${(line-1)*20}px`;
+    const desired=(line-1)*20;
+    if(desired<el.code.scrollTop || desired>el.code.scrollTop+el.code.clientHeight-30)
+      el.code.scrollTop=Math.max(0,desired-el.code.clientHeight/2);
+    el.gutter.scrollTop=el.code.scrollTop;
+  }
 
-codeEditor.addEventListener(
-    "keydown",
-    (event) => {
+  function renderOverlays(e) {
+    const stack=stackOf(e);
+    el.stackContent.innerHTML=stack.map(s=>`<div class="stack-item ${s.id===activeFrameId(e)?"active":""}">${esc(s.fn)} <span>${esc(s.id)}</span></div>`).join("")||"<small>No active stack</small>";
+    const objects=e?.objects||{};
+    el.memoryContent.innerHTML=Object.entries(objects).map(([id,obj])=>{
+      const src=obj.fields??obj.entries;
+      const rows=src&&typeof src==="object"?Object.entries(src).map(([k,v])=>`<div class="memory-row"><span>${esc(k)}</span><span>${esc(valueText(v))}</span></div>`).join(""):"";
+      return `<div class="memory-item"><b>${esc(obj.type||"object")} · ${esc(id)}</b>${rows}</div>`;
+    }).join("")||"<small>No heap objects at this step.</small>";
+  }
 
-        if (event.key !== "Tab") {
-            return;
-        }
+  function render() {
+    const e=state.events[state.step]||null;
+    state.frames=reconstructFrames(state.step);
+    buildChildren();
+    layout();
+    renderFrames();
+    renderEdges();
+    renderMemory(e);
+    renderAction(e);
+    updateSource(e);
+    renderOverlays(e);
 
-        event.preventDefault();
+    el.empty.classList.toggle("hidden",state.frames.size>0);
+    el.stepText.textContent=`Step ${state.events.length?state.step+1:0} / ${state.events.length}`;
+    el.timelineEvent.textContent=e?`${e.function||"<module>"} · ${e.event||"LINE_EXECUTED"}`:"";
+    el.range.max=Math.max(0,state.events.length-1); el.range.value=state.step;
+    el.output.textContent=`Output: ${state.output||"—"}`;
+    el.prev.disabled=state.step<=0; el.next.disabled=state.step>=state.events.length-1;
+    el.play.textContent=state.playing?"⏸ Pause":"▶ Play";
 
-        const start =
-            codeEditor.selectionStart;
+    if(state.follow && activeFrameId(e)) focusFrame(activeFrameId(e),false);
+    applyTransform();
+  }
 
-        const end =
-            codeEditor.selectionEnd;
+  function applyTransform() {
+    el.world.style.transform=`translate(${state.panX}px,${state.panY}px) scale(${state.zoom})`;
+    const z=Math.round(state.zoom*100); el.zoomLabel.textContent=`${z}%`; el.hudZoom.textContent=`${z}%`;
+  }
 
-        const value =
-            codeEditor.value;
+  function focusFrame(id=activeFrameId(state.events[state.step]), instant=true) {
+    const p=state.positions.get(id); if(!p)return;
+    const w=240,h=155;
+    const tx=el.viewport.clientWidth/2-(p.x+w/2)*state.zoom;
+    const ty=el.viewport.clientHeight/2-(p.y+h/2)*state.zoom;
+    if(instant){state.panX=tx;state.panY=ty}
+    else {state.panX += (tx-state.panX)*.75;state.panY += (ty-state.panY)*.75}
+    applyTransform();
+  }
 
-        codeEditor.value =
-            value.substring(0, start) +
-            "    " +
-            value.substring(end);
+  function fit() {
+    if(!state.positions.size)return;
+    const ps=[...state.positions.values()];
+    const minX=Math.min(...ps.map(p=>p.x)),maxX=Math.max(...ps.map(p=>p.x+240));
+    const minY=Math.min(...ps.map(p=>p.y)),maxY=Math.max(...ps.map(p=>p.y+155));
+    const vw=el.viewport.clientWidth-50,vh=el.viewport.clientHeight-50;
+    state.zoom=Math.max(.35,Math.min(1.25,vw/(maxX-minX||1),vh/(maxY-minY||1)));
+    state.panX=(el.viewport.clientWidth-(maxX-minX)*state.zoom)/2-minX*state.zoom;
+    state.panY=(el.viewport.clientHeight-(maxY-minY)*state.zoom)/2-minY*state.zoom;
+    applyTransform();
+  }
 
-        codeEditor.selectionStart =
-            start + 4;
+  function zoomAt(factor,cx,cy) {
+    const old=state.zoom,next=Math.max(.3,Math.min(2.5,old*factor));
+    if(next===old)return;
+    const r=el.viewport.getBoundingClientRect(),x=cx-r.left,y=cy-r.top;
+    state.panX=x-(x-state.panX)*next/old; state.panY=y-(y-state.panY)*next/old; state.zoom=next; applyTransform();
+  }
 
-        codeEditor.selectionEnd =
-            start + 4;
+  function setStep(n) {
+    if(!state.events.length)return;
+    state.step=Math.max(0,Math.min(state.events.length-1,n));
+    render();
+  }
 
-        updateLineNumbers();
-    }
-);
+  function play() {
+    if(state.playing){state.playing=false;clearInterval(state.timer);state.timer=null;render();return;}
+    if(state.step>=state.events.length-1)state.step=0;
+    state.playing=true;render();
+    state.timer=setInterval(()=>{
+      if(state.step>=state.events.length-1){play();return}
+      setStep(state.step+1);
+    },650);
+  }
 
+  function reset() {
+    state.playing=false;clearInterval(state.timer);state.timer=null;state.step=0;
+    state.zoom=1;state.panX=0;state.panY=0;render();fit();
+  }
 
-/* =========================================================
-   LANGUAGE
-========================================================= */
-
-languageSelect.addEventListener(
-    "change",
-    () => {
-
-        const language =
-            languageSelect.value;
-
-        languageBadge.textContent =
-            language === "python"
-                ? "Python"
-                : language === "cpp"
-                    ? "C++"
-                    : "Java";
-    }
-);
-
-
-/* =========================================================
-   RUN CODE
-========================================================= */
-
-runBtn.addEventListener(
-    "click",
-    runCode
-);
-
-
-async function runCode() {
-
-    stopPlaying();
-
-    runBtn.disabled = true;
-    runBtn.textContent = "⏳ Running...";
-
-    resetVisualization();
-
-    const language =
-        languageSelect.value;
-
-    const code =
-        codeEditor.value;
-
+  async function run() {
+    state.playing=false;clearInterval(state.timer);state.timer=null;
+    el.run.disabled=true;el.run.textContent="Running…";el.error.textContent="";
     try {
+      const r=await fetch("/api/execute",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({language:el.language.value,code:el.code.value})});
+      const data=await r.json();
+      if(!r.ok) throw new Error(data?.error||"Execution failed");
+      state.events=Array.isArray(data)?data:(data.events||[]);
+      state.output=data.output||state.events.find(e=>e?.output)?.output||"";
+      if(!state.events.length)throw new Error("No execution events returned.");
+      state.step=0;state.zoom=1;state.panX=0;state.panY=0;render();fit();
+    } catch(err) {el.error.textContent=err.message||String(err)}
+    finally {el.run.disabled=false;el.run.textContent="▶ Run Code"}
+  }
 
-        const response =
-            await fetch("/api/execute", {
+  // Source editor.
+  el.code.addEventListener("scroll",()=>el.gutter.scrollTop=el.code.scrollTop);
+  el.code.addEventListener("input",()=>updateSource(state.events[state.step]));
+  el.code.addEventListener("keydown",e=>{
+    if(e.key==="Tab"){e.preventDefault();const s=el.code.selectionStart;el.code.setRangeText("    ",s,el.code.selectionEnd,"end");}
+  });
 
-                method: "POST",
+  // Canvas navigation: normal wheel = pan; Ctrl/Cmd+wheel = zoom.
+  el.viewport.addEventListener("wheel",e=>{
+    e.preventDefault();
+    if(e.ctrlKey||e.metaKey){zoomAt(e.deltaY<0?1.1:.9,e.clientX,e.clientY);return}
+    state.panX-=e.deltaX;state.panY-=e.deltaY;applyTransform();
+  },{passive:false});
 
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
-                body: JSON.stringify({
-                    language: language,
-                    code: code
-                })
-            });
-
-
-        const raw =
-            await response.text();
-
-
-        let data;
-
-        try {
-            data = JSON.parse(raw);
-        } catch {
-            throw new Error(
-                raw || "Invalid response from server."
-            );
-        }
-
-
-        executionData = data;
-
-
-        if (data.error) {
-
-            showError(data.error);
-
-            return;
-        }
-
-
-        if (
-            !data.events ||
-            data.events.length === 0
-        ) {
-
-            showError(
-                "No execution events were generated."
-            );
-
-            return;
-        }
-
-
-        currentStep = 0;
-
-        renderStep();
-
-    } catch (error) {
-
-        showError(
-            error.message || "Execution failed."
-        );
-
-    } finally {
-
-        runBtn.disabled = false;
-        runBtn.textContent = "▶ Run Code";
+  el.viewport.addEventListener("pointerdown",e=>{
+    if(e.button===1 || (e.button===0&&state.space)){
+      state.panning=true;state.panStart={x:e.clientX,y:e.clientY,px:state.panX,py:state.panY};
+      el.viewport.setPointerCapture(e.pointerId);
     }
-}
-
-
-/* =========================================================
-   RENDER STEP
-========================================================= */
-
-function renderStep() {
-
-    if (
-        !executionData ||
-        !executionData.events ||
-        executionData.events.length === 0
-    ) {
-        return;
-    }
-
-
-    const events =
-        executionData.events;
-
-    const event =
-        events[currentStep];
-
-
-    if (!event) {
-        return;
-    }
-
-
-    /* ---------- STEP ---------- */
-
-    stepInfo.textContent =
-        `Step ${currentStep + 1} / ${events.length}`;
-
-
-    /* ---------- LINE ---------- */
-
-    const line =
-        event.line || 0;
-
-    currentLine.textContent =
-        line || "—";
-
-    updateLineNumbers(line);
-
-    scrollToLine(line);
-
-
-    /* ---------- EVENT ---------- */
-
-    eventType.textContent =
-        event.event || "UNKNOWN";
-
-    eventFunction.textContent =
-        event.function
-            ? event.function
-            : "—";
-
-    eventDescription.textContent =
-        describeEvent(event);
-
-
-    /* ---------- VARIABLES ---------- */
-
-    renderVariables(
-        event.variables || {}
-    );
-
-
-    /* ---------- CALL STACK ---------- */
-
-    renderCallStack(
-        event.callStack || []
-    );
-
-
-    /* ---------- MEMORY ---------- */
-
-    renderMemory(
-        event.objects || {},
-        event.references || {}
-    );
-
-
-    /* ---------- OUTPUT ---------- */
-
-    programOutput.textContent =
-        executionData.output || "";
-
-
-    /* ---------- BUTTONS ---------- */
-
-    updateControls();
-}
-
-
-/* =========================================================
-   SCROLL TO EXECUTING LINE
-========================================================= */
-
-function scrollToLine(line) {
-
-    if (!line || line < 1) {
-        return;
-    }
-
-    const lineHeight = 22;
-
-    const target =
-        (line - 1) * lineHeight;
-
-    const visibleHeight =
-        codeEditor.clientHeight;
-
-    const currentScroll =
-        codeEditor.scrollTop;
-
-    const upper =
-        target - 70;
-
-    const lower =
-        target + 70;
-
-    if (target < currentScroll) {
-
-        codeEditor.scrollTop =
-            Math.max(0, upper);
-
-    } else if (
-        target + lineHeight >
-        currentScroll + visibleHeight
-    ) {
-
-        codeEditor.scrollTop =
-            lower - visibleHeight;
-    }
-}
-
-
-/* =========================================================
-   EVENT DESCRIPTION
-========================================================= */
-
-function describeEvent(event) {
-
-    const type =
-        event.event;
-
-    switch (type) {
-
-        case "LINE_EXECUTED":
-            return `Executed line ${event.line}.`;
-
-        case "FUNCTION_ENTER":
-            return `Entered function ${event.function}().`;
-
-        case "FUNCTION_EXIT":
-            return `Returned from function ${event.function}().`;
-
-        case "MEMORY_READ":
-            return "Read a value from memory.";
-
-        case "MEMORY_WRITE":
-            return "Updated a value in memory.";
-
-        case "CACHE_HIT":
-            return "Found the requested value in the cache.";
-
-        case "CACHE_MISS":
-            return "Value was not found in the cache.";
-
-        case "CONDITION_EVALUATED":
-            return "A condition was evaluated.";
-
-        case "ERROR":
-            return "An error occurred during execution.";
-
-        default:
-            return "Execution event recorded.";
-    }
-}
-
-
-/* =========================================================
-   VARIABLES
-========================================================= */
-
-function renderVariables(data) {
-
-    variables.innerHTML = "";
-
-    const entries =
-        Object.entries(data);
-
-    if (entries.length === 0) {
-
-        variables.innerHTML =
-            `<div class="empty-panel">
-                No variables in this frame.
-            </div>`;
-
-        return;
-    }
-
-
-    entries.forEach(
-        ([name, value]) => {
-
-            const row =
-                document.createElement("div");
-
-            row.className =
-                "variable-row";
-
-
-            const nameElement =
-                document.createElement("span");
-
-            nameElement.className =
-                "variable-name";
-
-            nameElement.textContent =
-                name;
-
-
-            const valueElement =
-                document.createElement("span");
-
-            valueElement.className =
-                "variable-value";
-
-            valueElement.textContent =
-                formatValue(value);
-
-
-            row.appendChild(nameElement);
-            row.appendChild(valueElement);
-
-            variables.appendChild(row);
-        }
-    );
-}
-
-
-/* =========================================================
-   VALUE FORMATTER
-========================================================= */
-
-function formatValue(value) {
-
-    if (value === null ||
-        value === undefined) {
-
-        return "null";
-    }
-
-
-    if (
-        typeof value === "object" &&
-        value.objectId
-    ) {
-
-        return `→ ${value.objectId}`;
-    }
-
-
-    if (
-        typeof value === "object" &&
-        value.type &&
-        value.value !== undefined
-    ) {
-
-        return String(value.value);
-    }
-
-
-    return String(value);
-}
-
-
-/* =========================================================
-   CALL STACK
-========================================================= */
-
-function renderCallStack(stack) {
-
-    callStack.innerHTML = "";
-
-
-    if (!stack || stack.length === 0) {
-
-        callStack.innerHTML =
-            `<div class="empty-panel">
-                No active function calls.
-            </div>`;
-
-        return;
-    }
-
-
-    /*
-     * Show current frame first.
-     */
-
-    const reversed =
-        [...stack].reverse();
-
-
-    reversed.forEach(
-        (frame) => {
-
-            const row =
-                document.createElement("div");
-
-            row.className =
-                "stack-item";
-
-
-            const functionName =
-                document.createElement("span");
-
-            functionName.className =
-                "stack-function";
-
-            functionName.textContent =
-                frame.function || "<module>";
-
-
-            const frameId =
-                document.createElement("span");
-
-            frameId.className =
-                "stack-id";
-
-            frameId.textContent =
-                frame.frameId || "";
-
-
-            row.appendChild(functionName);
-            row.appendChild(frameId);
-
-            callStack.appendChild(row);
-        }
-    );
-}
-
-
-/* =========================================================
-   MEMORY VISUALIZATION
-========================================================= */
-
-function renderMemory(objects, references) {
-
-    memoryObjects.innerHTML = "";
-    memorySvg.innerHTML = "";
-
-    removeRootReferences();
-
-
-    const objectEntries =
-        Object.entries(objects || {});
-
-
-    memoryObjectCount.textContent =
-        `${objectEntries.length} ${
-            objectEntries.length === 1
-                ? "object"
-                : "objects"
-        }`;
-
-
-    if (objectEntries.length === 0) {
-
-        memoryEmpty.style.display =
-            "block";
-
-        return;
-    }
-
-
-    memoryEmpty.style.display =
-        "none";
-
-
-    /*
-     * Find root objects.
-     */
-
-    const roots = [];
-
-    Object.entries(references || {})
-        .forEach(
-            ([name, objectId]) => {
-
-                if (
-                    objectId &&
-                    objects[objectId]
-                ) {
-
-                    roots.push({
-                        name,
-                        objectId
-                    });
-                }
-            }
-        );
-
-
-    /*
-     * Calculate graph positions.
-     */
-
-    const positions =
-        calculatePositions(
-            objects,
-            roots
-        );
-
-
-    /*
-     * Create root labels.
-     */
-
-    roots.forEach(
-        (root, index) => {
-
-            createRootReference(
-                root,
-                positions[root.objectId],
-                index
-            );
-        }
-    );
-
-
-    /*
-     * Create object cards.
-     */
-
-    objectEntries.forEach(
-        ([objectId, object]) => {
-
-            const position =
-                positions[objectId];
-
-            if (!position) {
-                return;
-            }
-
-            createMemoryObject(
-                objectId,
-                object,
-                position
-            );
-        }
-    );
-
-
-    /*
-     * Draw arrows after cards exist.
-     */
-
-    requestAnimationFrame(
-        () => {
-
-            drawMemoryEdges(
-                objects,
-                positions
-            );
-        }
-    );
-}
-
-
-/* =========================================================
-   POSITION CALCULATION
-========================================================= */
-
-function calculatePositions(
-    objects,
-    roots
-) {
-
-    const positions = {};
-
-    const visited =
-        new Set();
-
-    const levels = {};
-
-
-    /*
-     * Start BFS from roots.
-     */
-
-    const queue = [];
-
-
-    roots.forEach(
-        root => {
-
-            queue.push({
-                id: root.objectId,
-                depth: 0
-            });
-        }
-    );
-
-
-    /*
-     * If there are no roots,
-     * simply place objects in levels.
-     */
-
-    if (queue.length === 0) {
-
-        Object.keys(objects)
-            .forEach(
-                (id, index) => {
-
-                    queue.push({
-                        id,
-                        depth:
-                            Math.floor(index / 4)
-                    });
-                }
-            );
-    }
-
-
-    while (queue.length > 0) {
-
-        const current =
-            queue.shift();
-
-        const id =
-            current.id;
-
-        const depth =
-            current.depth;
-
-
-        if (visited.has(id)) {
-            continue;
-        }
-
-        if (!objects[id]) {
-            continue;
-        }
-
-
-        visited.add(id);
-
-
-        if (!levels[depth]) {
-            levels[depth] = [];
-        }
-
-        levels[depth].push(id);
-
-
-        const fields =
-            objects[id].fields || {};
-
-
-        Object.values(fields)
-            .forEach(
-                value => {
-
-                    if (
-                        typeof value === "string" &&
-                        value.startsWith("obj_") &&
-                        objects[value]
-                    ) {
-
-                        queue.push({
-                            id: value,
-                            depth: depth + 1
-                        });
-                    }
-                }
-            );
-    }
-
-
-    /*
-     * Add objects not reached from roots.
-     */
-
-    Object.keys(objects)
-        .forEach(
-            id => {
-
-                if (visited.has(id)) {
-                    return;
-                }
-
-                let depth = 0;
-
-                while (
-                    levels[depth] &&
-                    levels[depth].length >= 4
-                ) {
-                    depth++;
-                }
-
-                if (!levels[depth]) {
-                    levels[depth] = [];
-                }
-
-                levels[depth].push(id);
-            }
-        );
-
-
-    /*
-     * Convert levels into pixel positions.
-     */
-
-    Object.entries(levels)
-        .forEach(
-            ([depthString, ids]) => {
-
-                const depth =
-                    Number(depthString);
-
-                ids.forEach(
-                    (id, index) => {
-
-                        positions[id] = {
-
-                            x:
-                                70 +
-                                index * 235,
-
-                            y:
-                                55 +
-                                depth * 180
-                        };
-                    }
-                );
-            }
-        );
-
-
-    return positions;
-}
-
-
-/* =========================================================
-   CREATE ROOT REFERENCE
-========================================================= */
-
-function createRootReference(
-    root,
-    position,
-    index
-) {
-
-    if (!position) {
-        return;
-    }
-
-
-    const element =
-        document.createElement("div");
-
-    element.className =
-        "root-reference";
-
-
-    element.style.left =
-        `${position.x + 48}px`;
-
-    element.style.top =
-        `${Math.max(8, position.y - 40)}px`;
-
-
-    element.innerHTML = `
-        <span class="root-icon">●</span>
-        <span>${escapeHtml(root.name)}</span>
-    `;
-
-
-    memoryObjects.appendChild(element);
-}
-
-
-/* =========================================================
-   REMOVE ROOT REFERENCES
-========================================================= */
-
-function removeRootReferences() {
-
-    document
-        .querySelectorAll(".root-reference")
-        .forEach(
-            element => element.remove()
-        );
-}
-
-
-/* =========================================================
-   CREATE MEMORY OBJECT
-========================================================= */
-
-function createMemoryObject(
-    objectId,
-    object,
-    position
-) {
-
-    const card =
-        document.createElement("div");
-
-    card.className =
-        "memory-object";
-
-
-    card.dataset.objectId =
-        objectId;
-
-
-    card.style.left =
-        `${position.x}px`;
-
-    card.style.top =
-        `${position.y}px`;
-
-
-    const header =
-        document.createElement("div");
-
-    header.className =
-        "object-header";
-
-
-    header.innerHTML = `
-        <div class="object-name">
-            <span class="object-dot"></span>
-            ${escapeHtml(object.type || "Object")}
-        </div>
-
-        <div class="object-id">
-            ${escapeHtml(objectId)}
-        </div>
-    `;
-
-
-    const fields =
-        document.createElement("div");
-
-    fields.className =
-        "object-fields";
-
-
-    Object.entries(
-        object.fields || {}
-    ).forEach(
-        ([fieldName, value]) => {
-
-            const row =
-                document.createElement("div");
-
-            row.className =
-                "object-field";
-
-
-            const name =
-                document.createElement("span");
-
-            name.className =
-                "field-name";
-
-            name.textContent =
-                fieldName;
-
-
-            const valueElement =
-                document.createElement("span");
-
-            valueElement.className =
-                "field-value";
-
-
-            if (
-                typeof value === "string" &&
-                value.startsWith("obj_")
-            ) {
-
-                valueElement.classList.add(
-                    "reference"
-                );
-
-                valueElement.textContent =
-                    `→ ${value}`;
-
-            } else if (
-                value === null ||
-                value === undefined
-            ) {
-
-                valueElement.classList.add(
-                    "null"
-                );
-
-                valueElement.textContent =
-                    "null";
-
-            } else if (
-                typeof value === "object" &&
-                value.type
-            ) {
-
-                const actualValue =
-                    value.value !== undefined
-                        ? value.value
-                        : value.type;
-
-                valueElement.textContent =
-                    String(actualValue);
-
-                if (
-                    value.type === "int" ||
-                    value.type === "float"
-                ) {
-                    valueElement.classList.add(
-                        "number"
-                    );
-                }
-
-            } else {
-
-                valueElement.textContent =
-                    String(value);
-            }
-
-
-            row.appendChild(name);
-            row.appendChild(valueElement);
-
-            fields.appendChild(row);
-        }
-    );
-
-
-    card.appendChild(header);
-    card.appendChild(fields);
-
-    memoryObjects.appendChild(card);
-}
-
-
-/* =========================================================
-   DRAW MEMORY EDGES
-========================================================= */
-
-function drawMemoryEdges(
-    objects,
-    positions
-) {
-
-    memorySvg.innerHTML = "";
-
-
-    /*
-     * Arrow marker
-     */
-
-    const defs =
-        document.createElementNS(
-            "http://www.w3.org/2000/svg",
-            "defs"
-        );
-
-
-    const marker =
-        document.createElementNS(
-            "http://www.w3.org/2000/svg",
-            "marker"
-        );
-
-
-    marker.setAttribute(
-        "id",
-        "arrow"
-    );
-
-    marker.setAttribute(
-        "markerWidth",
-        "7"
-    );
-
-    marker.setAttribute(
-        "markerHeight",
-        "7"
-    );
-
-    marker.setAttribute(
-        "refX",
-        "6"
-    );
-
-    marker.setAttribute(
-        "refY",
-        "3.5"
-    );
-
-    marker.setAttribute(
-        "orient",
-        "auto"
-    );
-
-
-    const polygon =
-        document.createElementNS(
-            "http://www.w3.org/2000/svg",
-            "polygon"
-        );
-
-    polygon.setAttribute(
-        "points",
-        "0 0, 7 3.5, 0 7"
-    );
-
-    polygon.setAttribute(
-        "fill",
-        "#71849e"
-    );
-
-
-    marker.appendChild(polygon);
-    defs.appendChild(marker);
-    memorySvg.appendChild(defs);
-
-
-    /*
-     * Draw each object reference.
-     */
-
-    Object.entries(objects)
-        .forEach(
-            ([sourceId, object]) => {
-
-                const source =
-                    positions[sourceId];
-
-                if (!source) {
-                    return;
-                }
-
-
-                Object.entries(
-                    object.fields || {}
-                ).forEach(
-                    ([fieldName, value]) => {
-
-                        if (
-                            typeof value !== "string" ||
-                            !value.startsWith("obj_")
-                        ) {
-                            return;
-                        }
-
-
-                        const target =
-                            positions[value];
-
-                        if (!target) {
-                            return;
-                        }
-
-
-                        const startX =
-                            source.x + 190;
-
-                        const startY =
-                            source.y + 62;
-
-
-                        const endX =
-                            target.x;
-
-                        const endY =
-                            target.y + 60;
-
-
-                        const distance =
-                            Math.abs(endX - startX);
-
-
-                        const curve =
-                            Math.max(
-                                45,
-                                distance * 0.45
-                            );
-
-
-                        const path =
-                            document.createElementNS(
-                                "http://www.w3.org/2000/svg",
-                                "path"
-                            );
-
-
-                        const d =
-                            `
-                            M ${startX} ${startY}
-                            C
-                            ${startX + curve} ${startY},
-                            ${endX - curve} ${endY},
-                            ${endX} ${endY}
-                            `;
-
-
-                        path.setAttribute(
-                            "d",
-                            d
-                        );
-
-                        path.setAttribute(
-                            "class",
-                            "memory-edge"
-                        );
-
-                        path.setAttribute(
-                            "marker-end",
-                            "url(#arrow)"
-                        );
-
-
-                        memorySvg.appendChild(
-                            path
-                        );
-
-
-                        /*
-                         * Field label
-                         */
-
-                        const label =
-                            document.createElementNS(
-                                "http://www.w3.org/2000/svg",
-                                "text"
-                            );
-
-
-                        const labelX =
-                            (startX + endX) / 2;
-
-                        const labelY =
-                            (startY + endY) / 2 - 5;
-
-
-                        label.setAttribute(
-                            "x",
-                            labelX
-                        );
-
-                        label.setAttribute(
-                            "y",
-                            labelY
-                        );
-
-                        label.setAttribute(
-                            "class",
-                            "edge-label"
-                        );
-
-                        label.setAttribute(
-                            "text-anchor",
-                            "middle"
-                        );
-
-                        label.textContent =
-                            fieldName;
-
-
-                        memorySvg.appendChild(
-                            label
-                        );
-                    }
-                );
-            }
-        );
-}
-
-
-/* =========================================================
-   RESET
-========================================================= */
-
-resetBtn.addEventListener(
-    "click",
-    () => {
-
-        stopPlaying();
-
-        if (
-            executionData &&
-            executionData.events &&
-            executionData.events.length
-        ) {
-
-            currentStep = 0;
-
-            renderStep();
-
-        } else {
-
-            resetVisualization();
-        }
-    }
-);
-
-
-function resetVisualization() {
-
-    currentStep = 0;
-
-    currentLine.textContent =
-        "—";
-
-    stepInfo.textContent =
-        "Step 0 / 0";
-
-    eventType.textContent =
-        "—";
-
-    eventFunction.textContent =
-        "—";
-
-    eventDescription.textContent =
-        "Run the program to begin execution.";
-
-    renderVariables({});
-
-    renderCallStack([]);
-
-    memoryObjects.innerHTML = "";
-    memorySvg.innerHTML = "";
-
-    removeRootReferences();
-
-    memoryEmpty.style.display =
-        "block";
-
-    memoryObjectCount.textContent =
-        "0 objects";
-
-    updateLineNumbers();
-    updateControls();
-}
-
-
-/* =========================================================
-   PREVIOUS
-========================================================= */
-
-prevBtn.addEventListener(
-    "click",
-    () => {
-
-        if (!executionData) {
-            return;
-        }
-
-        if (currentStep > 0) {
-
-            currentStep--;
-
-            renderStep();
-        }
-    }
-);
-
-
-/* =========================================================
-   NEXT
-========================================================= */
-
-nextBtn.addEventListener(
-    "click",
-    () => {
-
-        if (!executionData) {
-            return;
-        }
-
-
-        if (
-            currentStep <
-            executionData.events.length - 1
-        ) {
-
-            currentStep++;
-
-            renderStep();
-
-        } else {
-
-            stopPlaying();
-        }
-    }
-);
-
-
-/* =========================================================
-   PLAY / PAUSE
-========================================================= */
-
-playBtn.addEventListener(
-    "click",
-    () => {
-
-        if (!executionData) {
-            return;
-        }
-
-
-        if (isPlaying) {
-
-            stopPlaying();
-
-        } else {
-
-            startPlaying();
-        }
-    }
-);
-
-
-function startPlaying() {
-
-    if (!executionData) {
-        return;
-    }
-
-
-    if (
-        currentStep >=
-        executionData.events.length - 1
-    ) {
-
-        currentStep = 0;
-
-        renderStep();
-    }
-
-
-    isPlaying = true;
-
-    playBtn.textContent =
-        "❚❚ Pause";
-
-
-    playTimer =
-        setInterval(
-            () => {
-
-                if (
-                    currentStep >=
-                    executionData.events.length - 1
-                ) {
-
-                    stopPlaying();
-
-                    return;
-                }
-
-
-                currentStep++;
-
-                renderStep();
-
-            },
-            650
-        );
-}
-
-
-function stopPlaying() {
-
-    isPlaying = false;
-
-    clearInterval(playTimer);
-
-    playTimer = null;
-
-    playBtn.textContent =
-        "▶ Play";
-}
-
-
-/* =========================================================
-   CONTROLS
-========================================================= */
-
-function updateControls() {
-
-    const hasData =
-        executionData &&
-        executionData.events &&
-        executionData.events.length > 0;
-
-
-    prevBtn.disabled =
-        !hasData ||
-        currentStep <= 0;
-
-
-    nextBtn.disabled =
-        !hasData ||
-        currentStep >=
-        executionData.events.length - 1;
-
-
-    playBtn.disabled =
-        !hasData;
-}
-
-
-/* =========================================================
-   ERROR
-========================================================= */
-
-function showError(message) {
-
-    executionData = null;
-
-    currentStep = 0;
-
-    eventType.textContent =
-        "ERROR";
-
-    eventFunction.textContent =
-        "Execution";
-
-    eventDescription.textContent =
-        "The program could not be executed.";
-
-
-    memoryObjects.innerHTML = "";
-
-    memorySvg.innerHTML = "";
-
-    removeRootReferences();
-
-    memoryEmpty.style.display =
-        "none";
-
-
-    memoryObjectCount.textContent =
-        "0 objects";
-
-
-    variables.innerHTML = `
-        <div class="error-message">
-            ${escapeHtml(message)}
-        </div>
-    `;
-
-
-    callStack.innerHTML = `
-        <div class="empty-panel">
-            Execution failed.
-        </div>
-    `;
-
-
-    programOutput.textContent =
-        "";
-
-
-    updateControls();
-}
-
-
-/* =========================================================
-   HTML ESCAPE
-========================================================= */
-
-function escapeHtml(value) {
-
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-}
-
-
-/* =========================================================
-   INITIALIZE
-========================================================= */
-
-updateLineNumbers();
-updateControls();
+  });
+  el.viewport.addEventListener("pointermove",e=>{
+    if(!state.panning)return;
+    state.panX=state.panStart.px+(e.clientX-state.panStart.x);
+    state.panY=state.panStart.py+(e.clientY-state.panStart.y);applyTransform();
+  });
+  el.viewport.addEventListener("pointerup",e=>{state.panning=false;try{el.viewport.releasePointerCapture(e.pointerId)}catch{}});
+  window.addEventListener("keydown",e=>{
+    if(e.target===el.code)return;
+    if(e.code==="Space"){state.space=true;e.preventDefault()}
+    if(e.key==="f"||e.key==="F"){e.preventDefault();state.follow=true;el.follow.checked=true;focusFrame()}
+    if(e.key==="0"){e.preventDefault();fit()}
+    if(e.key==="+"||e.key==="="){e.preventDefault();zoomAt(1.15,el.viewport.clientWidth/2,el.viewport.clientHeight/2)}
+    if(e.key==="-"){e.preventDefault();zoomAt(.87,el.viewport.clientWidth/2,el.viewport.clientHeight/2)}
+  });
+  window.addEventListener("keyup",e=>{if(e.code==="Space")state.space=false});
+
+  // Controls.
+  el.run.addEventListener("click",run);
+  el.prev.addEventListener("click",()=>setStep(state.step-1));
+  el.next.addEventListener("click",()=>setStep(state.step+1));
+  el.play.addEventListener("click",play);
+  el.reset.addEventListener("click",reset);
+  el.range.addEventListener("input",e=>setStep(Number(e.target.value)));
+  el.follow.addEventListener("change",()=>state.follow=el.follow.checked);
+  el.fit.addEventListener("click",fit);el.hudFit.addEventListener("click",fit);
+  el.focus.addEventListener("click",()=>focusFrame());
+  el.zoomIn.addEventListener("click",()=>zoomAt(1.15,el.viewport.clientWidth/2,el.viewport.clientHeight/2));
+  el.zoomOut.addEventListener("click",()=>zoomAt(.87,el.viewport.clientWidth/2,el.viewport.clientHeight/2));
+  el.hudZoomIn.addEventListener("click",()=>zoomAt(1.15,el.viewport.clientWidth/2,el.viewport.clientHeight/2));
+  el.hudZoomOut.addEventListener("click",()=>zoomAt(.87,el.viewport.clientWidth/2,el.viewport.clientHeight/2));
+
+  el.stackBtn.addEventListener("click",()=>el.stackOverlay.classList.toggle("hidden"));
+  el.memoryBtn.addEventListener("click",()=>el.memoryOverlay.classList.toggle("hidden"));
+  el.max.addEventListener("click",()=>{state.max=!state.max;el.visual.classList.toggle("max",state.max);setTimeout(()=>{if(state.max)focusFrame();else fit()},20)});
+
+  window.addEventListener("resize",()=>{if(state.max)focusFrame()});
+  updateSource(null);
+})();

@@ -1,238 +1,122 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>Code Execution Visualizer</title>
-
-    <link rel="stylesheet" href="/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Code Execution Visualizer</title>
+  <link rel="stylesheet" href="/style.css">
 </head>
-
 <body>
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon">&lt;/&gt;</div>
+      <div>
+        <div class="brand-title">Code Execution Visualizer</div>
+        <div class="brand-subtitle">Execution flow · Memory · Recursion</div>
+      </div>
+    </div>
 
-<div class="app">
+    <div class="toolbar">
+      <button id="zoomOut" class="tool">−</button>
+      <span id="zoomLabel" class="zoom-label">100%</span>
+      <button id="zoomIn" class="tool">+</button>
+      <button id="fitBtn" class="tool wide">Fit</button>
+      <button id="focusBtn" class="tool wide">Focus</button>
+      <label class="follow"><input id="followToggle" type="checkbox" checked> Follow</label>
+      <select id="language"><option value="python">Python</option></select>
+      <button id="runBtn" class="run">▶ Run Code</button>
+    </div>
+  </header>
 
-    <!-- ================= TOP BAR ================= -->
-    <header class="topbar">
+  <main class="main">
+    <section class="source panel">
+      <div class="panel-head">
+        <div><b>Source Code</b><span class="badge">PYTHON</span></div>
+        <span>Line <b id="currentLine">—</b></span>
+      </div>
+      <div class="editor">
+        <div id="gutter" class="gutter"></div>
+        <div class="code-wrap">
+          <div id="lineHighlight" class="line-highlight"></div>
+          <textarea id="codeInput" spellcheck="false"></textarea>
+        </div>
+      </div>
+    </section>
 
-        <div class="brand">
-            <div class="brand-icon">&lt;/&gt;</div>
+    <section class="visual panel" id="visualPanel">
+      <div class="panel-head visual-head">
+        <div><b>Execution Canvas</b><span id="statusBadge" class="badge">READY</span></div>
+        <div class="head-actions">
+          <button id="stackBtn" class="tool small">Stack</button>
+          <button id="memoryBtn" class="tool small">Memory</button>
+          <button id="maxBtn" class="tool small">⛶</button>
+        </div>
+      </div>
 
-            <div>
-                <h1>Code Execution Visualizer</h1>
-                <p>Execution flow • Memory • Call Stack</p>
-            </div>
+      <div class="action">
+        <span id="eventType" class="event-tag">READY</span>
+        <div>
+          <b id="eventTitle">Run code to begin</b>
+          <small id="eventDetail">The execution canvas will grow with the actual execution.</small>
+        </div>
+      </div>
+
+      <div id="viewport" class="viewport">
+        <div id="world" class="world">
+          <svg id="edges" class="edges">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z"></path>
+              </marker>
+            </defs>
+            <g id="edgeLayer"></g>
+          </svg>
+          <div id="nodeLayer" class="node-layer"></div>
+          <div id="memoryLayer" class="memory-layer"></div>
         </div>
 
-        <div class="top-actions">
-
-            <select id="languageSelect">
-                <option value="python">Python</option>
-                <option value="cpp">C++</option>
-                <option value="java">Java</option>
-            </select>
-
-            <button id="runBtn" class="run-btn">
-                ▶ Run Code
-            </button>
-
+        <div id="empty" class="empty">
+          <div class="empty-icon">◎</div>
+          <b>Execution canvas</b>
+          <span>Run code, then step through it.</span>
+          <small>Wheel = pan · Ctrl+wheel = zoom · Middle drag = pan · F = focus · 0 = fit</small>
         </div>
 
-    </header>
-
-
-    <!-- ================= MAIN ================= -->
-    <main class="main-container">
-
-        <!-- ================= TOP WORKSPACE ================= -->
-        <section class="workspace">
-
-            <!-- ================= CODE PANEL ================= -->
-            <section class="panel code-panel">
-
-                <div class="panel-header">
-
-                    <div class="panel-title">
-                        <span>Source Code</span>
-                        <span class="language-badge" id="languageBadge">
-                            Python
-                        </span>
-                    </div>
-
-                    <div class="line-indicator">
-                        Line <span id="currentLine">—</span>
-                    </div>
-
-                </div>
-
-
-                <div class="editor-wrapper">
-
-                    <!-- Line numbers -->
-                    <div id="lineNumbers" class="line-numbers"></div>
-
-                    <!-- Actual editable editor -->
-                    <textarea
-                        id="codeEditor"
-                        spellcheck="false"
-                        autocomplete="off"
-                        autocorrect="off"
-                        autocapitalize="off"
-                        wrap="off"
-                    ></textarea>
-
-                </div>
-
-            </section>
-
-
-            <!-- ================= MEMORY PANEL ================= -->
-            <section class="panel memory-panel">
-
-                <div class="panel-header">
-
-                    <div class="panel-title">
-                        <span>Memory Visualization</span>
-                    </div>
-
-                    <div class="memory-meta">
-                        <span id="memoryObjectCount">0 objects</span>
-                        <span class="separator">•</span>
-                        <span id="stepInfo">Step 0 / 0</span>
-                    </div>
-
-                </div>
-
-
-                <div id="memoryGraph" class="memory-graph">
-
-                    <div id="memoryEmpty" class="memory-empty">
-
-                        <div class="empty-icon">◎</div>
-
-                        <h3>No memory state</h3>
-
-                        <p>
-                            Run your program to visualize objects,
-                            references and memory changes.
-                        </p>
-
-                    </div>
-
-                    <svg id="memorySvg"></svg>
-
-                    <div id="memoryObjects"></div>
-
-                </div>
-
-            </section>
-
-        </section>
-
-
-        <!-- ================= EVENT BAR ================= -->
-        <section class="event-panel">
-
-            <div class="event-label">
-                CURRENT EVENT
-            </div>
-
-            <div id="eventType" class="event-type">
-                —
-            </div>
-
-            <div id="eventFunction" class="event-function">
-                —
-            </div>
-
-            <div id="eventDescription" class="event-description">
-                Run the program to begin execution.
-            </div>
-
-        </section>
-
-
-        <!-- ================= CONTROLS ================= -->
-        <section class="execution-controls">
-
-            <button id="prevBtn" class="control-btn">
-                ◀ Previous
-            </button>
-
-            <button id="playBtn" class="control-btn play">
-                ▶ Play
-            </button>
-
-            <button id="nextBtn" class="control-btn">
-                Next ▶
-            </button>
-
-            <button id="resetBtn" class="control-btn">
-                ↻ Reset
-            </button>
-
-        </section>
-
-
-        <!-- ================= BOTTOM PANELS ================= -->
-        <section class="bottom-grid">
-
-            <!-- CALL STACK -->
-            <section class="panel info-panel">
-
-                <div class="panel-header">
-                    <span class="panel-title">Call Stack</span>
-                </div>
-
-                <div id="callStack" class="panel-content">
-
-                    <div class="empty-panel">
-                        No active function calls.
-                    </div>
-
-                </div>
-
-            </section>
-
-
-            <!-- VARIABLES -->
-            <section class="panel info-panel">
-
-                <div class="panel-header">
-                    <span class="panel-title">Variables</span>
-                </div>
-
-                <div id="variables" class="panel-content">
-
-                    <div class="empty-panel">
-                        No variables.
-                    </div>
-
-                </div>
-
-            </section>
-
-
-            <!-- OUTPUT -->
-            <section class="panel info-panel output-panel">
-
-                <div class="panel-header">
-                    <span class="panel-title">Program Output</span>
-                </div>
-
-                <pre id="programOutput" class="output-content"></pre>
-
-            </section>
-
-        </section>
-
-    </main>
-
+        <div class="hud">
+          <button id="hudZoomOut">−</button>
+          <span id="hudZoom">100%</span>
+          <button id="hudZoomIn">+</button>
+          <button id="hudFit">Fit</button>
+        </div>
+
+        <aside id="stackOverlay" class="overlay hidden">
+          <b>Call Stack</b><div id="stackContent"></div>
+        </aside>
+        <aside id="memoryOverlay" class="overlay hidden">
+          <b>Memory</b><div id="memoryContent"></div>
+        </aside>
+      </div>
+
+      <div class="timeline">
+        <div><span id="stepText">Step 0 / 0</span><span id="timelineEvent"></span></div>
+        <input id="range" type="range" min="0" max="0" value="0">
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="controls">
+      <button id="prevBtn">◀ Previous</button>
+      <button id="playBtn" class="primary">▶ Play</button>
+      <button id="nextBtn">Next ▶</button>
+      <button id="resetBtn">↻ Reset</button>
+    </div>
+    <span id="output" class="output">Output: —</span>
+    <span id="error" class="error"></span>
+  </footer>
 </div>
-
-
 <script src="/app.js"></script>
-
 </body>
 </html>
