@@ -59,23 +59,69 @@
         </div>
       </div>
 
-      <div class="action">
-        <span id="eventType" class="event-tag">READY</span>
-        <div class="event-copy">
-          <b id="eventTitle">Run code to begin</b>
-          <small id="eventDetail">The execution canvas will grow with the actual execution.</small>
-        </div>
-      </div>
+      <div class="ai-workspace">
+        <section class="ai-card">
+          <div class="ai-card-head">
+            <div class="ai-title-wrap">
+              <span class="ai-icon">✦</span>
+              <div>
+                <b>GenAI Explanation</b>
+                <small id="aiStep">Waiting for execution</small>
+              </div>
+            </div>
+            <span class="ai-source-badge">AI · TRACE GROUNDED</span>
+          </div>
 
-      <div class="meta-panel">
-        <div class="mini-card">
-          <div class="mini-label">Line</div>
-          <strong id="lineBadge">—</strong>
-        </div>
-        <div class="mini-card wide-card">
-          <div class="mini-label">Variables</div>
-          <div id="liveVariables" class="var-list"><span>—</span></div>
-        </div>
+          <div class="ai-context">
+            <div class="ai-context-top">
+              <span id="aiEventType" class="event-tag">READY</span>
+              <strong id="aiEventTitle">Run code to begin</strong>
+              <span id="aiStepCount" class="ai-step-count">Step 0 / 0</span>
+            </div>
+
+            <div id="aiEventDetail" class="ai-event-detail">
+              The current execution step will appear here.
+            </div>
+
+            <div class="ai-data-row">
+              <div class="ai-line-box">
+                <span class="ai-data-label">LINE</span>
+                <strong id="aiLine">—</strong>
+              </div>
+              <div class="ai-variable-box">
+                <span class="ai-data-label">VARIABLES</span>
+                <div id="aiVariables" class="ai-variables">
+                  <span class="ai-empty-chip">—</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="aiText" class="ai-text">
+            Run your code to generate a student-friendly explanation.
+          </div>
+        </section>
+
+        <section class="ask-card">
+          <div class="ask-head">
+            <div class="ask-icon">?</div>
+            <div>
+              <b>Ask about this execution</b>
+              <small>Ask a doubt about the current step, variables, flow, or memory.</small>
+            </div>
+          </div>
+
+          <textarea id="askInput"
+            placeholder="e.g. Why did the recursion continue here?"
+            spellcheck="false"></textarea>
+
+          <div class="ask-actions">
+            <span id="askStatus">Uses the verified execution context.</span>
+            <button id="askBtn" class="ask-btn">✦ Ask GenAI</button>
+          </div>
+
+          <div id="askAnswer" class="ask-answer hidden"></div>
+        </section>
       </div>
 
       <div class="viewport-shell">

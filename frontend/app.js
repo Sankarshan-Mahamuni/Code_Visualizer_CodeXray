@@ -11,10 +11,25 @@ print(fib(5))`;
 
   const $ = id => document.getElementById(id);
   const state = {
-    events: [], step: 0, output: "", playing: false, timer: null,
-    frames: new Map(), positions: new Map(),
-    zoom: 1, panX: 0, panY: 0, follow: true, panning: false,
-    space: false, max: false, viewMode: "execution"
+    events: [],
+    semanticSteps: [],
+    aiExplanations: [],
+    askAnswer: "",
+    asking: false,
+    step: 0,
+    output: "",
+    playing: false,
+    timer: null,
+    frames: new Map(),
+    positions: new Map(),
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    follow: true,
+    panning: false,
+    space: false,
+    max: false,
+    viewMode: "execution"
   };
 
   const el = {
@@ -31,7 +46,10 @@ print(fib(5))`;
     stackOverlay: $("stackOverlay"), memoryOverlay: $("memoryOverlay"),
     stackContent: $("stackContent"), memoryContent: $("memoryContent"),
     executionView: $("executionView"), memoryView: $("memoryView"), memoryGraph: $("memoryGraph"),
-    liveVariables: $("liveVariables"), lineBadge: $("lineBadge"),
+    aiExplanation: $("aiText"), aiStep: $("aiStep"), aiText: $("aiText"),
+    aiEventType: $("aiEventType"), aiEventTitle: $("aiEventTitle"), aiEventDetail: $("aiEventDetail"),
+    aiStepCount: $("aiStepCount"), aiLine: $("aiLine"), aiVariables: $("aiVariables"),
+    askInput: $("askInput"), askBtn: $("askBtn"), askAnswer: $("askAnswer"), askStatus: $("askStatus"),
     viewButtons: [...document.querySelectorAll("[data-view]")]
   };
 
@@ -353,13 +371,17 @@ print(fib(5))`;
   }
 
   function renderAction(e) {
+    const total = state.events.length;
+    const stepNo = total ? state.step + 1 : 0;
+
+    el.aiStepCount.textContent = `Step ${stepNo} / ${total}`;
+
     if (!e) {
-      el.eventType.textContent = "READY";
-      el.eventTitle.textContent = "Run code to begin";
-      el.eventDetail.textContent = "The execution canvas will grow with the actual execution.";
-      el.status.textContent = "READY";
-      el.lineBadge.textContent = "—";
-      el.liveVariables.innerHTML = "<span>—</span>";
+      el.aiEventType.textContent = "READY";
+      el.aiEventTitle.textContent = "Run code to begin";
+      el.aiEventDetail.textContent = "The current execution step will appear here.";
+      el.aiLine.textContent = "—";
+      el.aiVariables.innerHTML = '<span class="ai-empty-chip">—</span>';
       return;
     }
 
@@ -367,26 +389,196 @@ print(fib(5))`;
     const fn = String(e.function || "<module>");
     const line = Number(e.line || 0);
     const statement = sourceLine(line).trim();
-    el.eventType.textContent = type;
-    el.status.textContent = `STEP ${state.step + 1}`;
-    el.lineBadge.textContent = String(line || "—");
 
-    let title = `${fn} · line ${line || "?"}`;
+    el.aiEventType.textContent = friendlyEventType(type);
+    el.aiEventTitle.textContent = `${fn} · Line ${line || "?"}`;
+    el.aiLine.textContent = String(line || "—");
+
     let detail = "";
-    const branchText = sourceBranchLabel(statement);
-    if (type === "FUNCTION_ENTER") detail = `Called ${fn}(${formatArgs(e)})`;
-    else if (type === "FUNCTION_EXIT") detail = `${fn} returned ${valueText(e.returnValue ?? e.returnedValue ?? e.value)}`;
-    else if (type === "CONDITION_EVALUATED") detail = `${e.condition || "Condition"} → ${e.result ?? e.value ?? "evaluated"}`;
-    else if (type === "MEMORY_WRITE") detail = `Memory write: ${e.key !== undefined ? valueText(e.key) : ""} ${e.value !== undefined ? "→ " + valueText(e.value) : ""}`;
-    else if (type === "CACHE_HIT") detail = "Cached value found.";
-    else if (type === "CACHE_MISS") detail = "Cached value not found.";
-    else detail = statement ? `Executing: ${statement}` : `Executed line ${line}.`;
+    if (type === "FUNCTION_ENTER") {
+      detail = `Called ${fn}(${formatArgs(e)})`;
+    } else if (type === "FUNCTION_EXIT") {
+      detail = `${fn} returned ${valueText(e.returnValue ?? e.returnedValue ?? e.value)}`;
+    } else if (type === "CONDITION_EVALUATED") {
+      const condition = cleanCondition(e, statement);
+      const result = conditionResult(e);
+      detail = `Checking condition: ${condition}  →  ${result}`;
+    } else if (type === "MEMORY_WRITE") {
+      detail = `Memory updated${e.key !== undefined ? `: ${valueText(e.key)}` : ""}${e.value !== undefined ? ` → ${valueText(e.value)}` : ""}`;
+    } else if (type === "CACHE_HIT") {
+      detail = "A previously computed value was reused.";
+    } else if (type === "CACHE_MISS") {
+      detail = "No cached value was available, so execution continues.";
+    } else {
+      detail = statement ? `Executing: ${statement}` : `Executed line ${line}.`;
+    }
 
-    el.eventTitle.textContent = title;
-    el.eventDetail.textContent = statement ? `${detail} • ${branchText}` : detail;
+    el.aiEventDetail.textContent = detail;
 
-    const vars = Object.entries(e.variables || {}).filter(([k]) => !k.startsWith("__") && k !== "self");
-    el.liveVariables.innerHTML = vars.length ? vars.slice(0, 6).map(([k, v]) => `<span><b>${esc(k)}</b>: ${esc(valueText(v))}</span>`).join("") : "<span>no local variables</span>";
+    const vars = Object.entries(e.variables || {})
+      .filter(([k]) => !k.startsWith("__") && k !== "self");
+
+    el.aiVariables.innerHTML = vars.length
+      ? vars.slice(0, 8).map(([k, v]) =>
+          `<span class="ai-var-chip"><b>${esc(k)}</b><span>${esc(valueText(v))}</span></span>`
+        ).join("")
+      : '<span class="ai-empty-chip">No local variables</span>';
+  }
+
+  function friendlyEventType(type) {
+    const labels = {
+      "LINE_EXECUTED": "LINE EXECUTED",
+      "CONDITION_EVALUATED": "CONDITION CHECK",
+      "FUNCTION_ENTER": "FUNCTION CALL",
+      "FUNCTION_EXIT": "FUNCTION RETURN",
+      "ASSIGNMENT": "ASSIGNMENT",
+      "EXPRESSION_RESULT": "EXPRESSION",
+      "MEMORY_WRITE": "MEMORY UPDATE",
+      "OUTPUT": "OUTPUT"
+    };
+    return labels[type] || type.replaceAll("_", " ");
+  }
+
+  function conditionResult(e) {
+    const value = e?.result ?? e?.value ?? e?.conditionResult ?? e?.outcome;
+    if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+    const text = String(value ?? "").trim().toLowerCase();
+    if (text === "true") return "TRUE";
+    if (text === "false") return "FALSE";
+    return valueText(value || "evaluated");
+  }
+
+  function cleanCondition(e, statement = "") {
+    // Prefer the actual source line because the raw tracer may contain
+    // an internal helper such as _expr_compare(...AST...).
+    const source = statement.trim();
+    if (/^if\s+/i.test(source)) {
+      return source.replace(/^if\s+/i, "").replace(/:\s*$/, "").trim();
+    }
+
+    const raw = String(e?.condition || e?.expression || e?.expr || "").trim();
+    if (raw && !raw.includes("_expr_") && raw.length < 120) return raw;
+
+    return "Condition";
+  }
+
+  function currentSemanticStepInfo() {
+    if (!state.semanticSteps.length || !state.events.length) return null;
+
+    const currentEvent = state.events[state.step];
+    const rawStep = Number(currentEvent?.step ?? state.step);
+    let semanticIndex = -1;
+
+    for (let i = 0; i < state.semanticSteps.length; i++) {
+      const semanticEventStep = Number(
+        state.semanticSteps[i]?.event?.step ??
+        state.semanticSteps[i]?.event?.eventStep ??
+        -1
+      );
+      if (semanticEventStep <= rawStep) semanticIndex = i;
+      else break;
+    }
+
+    if (semanticIndex < 0) {
+      semanticIndex = Math.min(state.step, state.semanticSteps.length - 1);
+    }
+
+    return {
+      index: semanticIndex,
+      step: state.semanticSteps[semanticIndex]
+    };
+  }
+
+  function renderAIExplanation() {
+    const info = currentSemanticStepInfo();
+
+    if (!info) {
+      el.aiStep.textContent = "Waiting for execution";
+      el.aiText.textContent = "Run your code to generate a student-friendly explanation.";
+      return;
+    }
+
+    const semanticStep = info.step;
+    const explanation = state.aiExplanations.find(
+      item => Number(item.step) === Number(semanticStep.step)
+    );
+
+    el.aiStep.textContent = `Semantic Step ${semanticStep.step} · Line ${semanticStep.line}`;
+
+    if (explanation?.explanation) {
+      el.aiText.textContent = explanation.explanation;
+    } else {
+      el.aiText.textContent = "AI explanation is not available for this step yet.";
+    }
+  }
+
+  function clearAskAnswer() {
+    state.askAnswer = "";
+    state.asking = false;
+    el.askAnswer.textContent = "";
+    el.askAnswer.classList.add("hidden");
+    el.askStatus.textContent = "Uses the verified execution context.";
+    el.askBtn.disabled = false;
+    el.askBtn.textContent = "✦ Ask GenAI";
+  }
+
+  async function askGenAI() {
+    const question = el.askInput.value.trim();
+    if (!question) {
+      el.askStatus.textContent = "Type a question first.";
+      el.askInput.focus();
+      return;
+    }
+
+    if (!state.events.length) {
+      el.askStatus.textContent = "Run the program first.";
+      return;
+    }
+
+    const info = currentSemanticStepInfo();
+    const currentEvent = state.events[state.step];
+
+    state.asking = true;
+    el.askBtn.disabled = true;
+    el.askBtn.textContent = "Asking…";
+    el.askStatus.textContent = "Generating an answer from the verified trace.";
+    el.askAnswer.classList.remove("hidden");
+    el.askAnswer.textContent = "Thinking about the current execution step…";
+
+    try {
+      const trace = {
+        currentEvent,
+        semanticStep: info?.step || null,
+        previousSemanticSteps: info
+          ? state.semanticSteps.slice(0, info.index + 1)
+          : [],
+        output: state.output
+      };
+
+      const r = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: el.code.value,
+          question,
+          trace
+        })
+      });
+
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || "Could not get an answer.");
+
+      state.askAnswer = String(data.answer || "No answer was returned.");
+      el.askAnswer.textContent = state.askAnswer;
+      el.askStatus.textContent = "Answer based on the verified execution context.";
+    } catch (err) {
+      el.askAnswer.textContent = err.message || String(err);
+      el.askStatus.textContent = "Could not contact GenAI.";
+    } finally {
+      state.asking = false;
+      el.askBtn.disabled = false;
+      el.askBtn.textContent = "✦ Ask GenAI";
+    }
   }
 
   function updateSource(e) {
@@ -398,13 +590,19 @@ print(fib(5))`;
       el.lineHighlight.style.display = "none";
       return;
     }
+    // The textarea has 11px top padding, so the highlight must use the same
+    // baseline. This keeps the highlighted row aligned with the actual text.
+    const lineHeight = 20;
+    const topPadding = 11;
+    const desired = (line - 1) * lineHeight;
     el.lineHighlight.style.display = "block";
-    el.lineHighlight.style.top = `${(line - 1) * 20}px`;
-    const desired = (line - 1) * 20;
+    el.lineHighlight.style.top = `${topPadding + desired - el.code.scrollTop}px`;
+
     if (desired < el.code.scrollTop || desired > el.code.scrollTop + el.code.clientHeight - 30) {
       el.code.scrollTop = Math.max(0, desired - el.code.clientHeight / 2);
     }
     el.gutter.scrollTop = el.code.scrollTop;
+    el.lineHighlight.style.top = `${topPadding + desired - el.code.scrollTop}px`;
   }
 
   function renderOverlays(e) {
@@ -419,6 +617,18 @@ print(fib(5))`;
     }).join("") || "<small>No heap objects at this step.</small>";
   }
 
+  function getObjectFields(obj) {
+    if (!obj || typeof obj !== "object") return {};
+    const source = obj.fields ?? obj.entries;
+    if (source && typeof source === "object" && !Array.isArray(source)) return source;
+    return {};
+  }
+
+  function getReferenceTarget(value) {
+    if (!value || typeof value !== "object") return null;
+    return value.objectId ? String(value.objectId) : null;
+  }
+
   function renderMemoryGraph(e) {
     const graph = el.memoryGraph;
     graph.innerHTML = "";
@@ -430,60 +640,92 @@ print(fib(5))`;
       return;
     }
 
+    // Build a clean reference graph from the tracer's objectId references.
     const nodes = new Map();
     const edges = [];
     const incoming = new Map();
 
-    ids.forEach((id) => {
+    ids.forEach(id => {
       const obj = objects[id] || {};
-      const fields = obj.fields ?? obj.entries ?? {};
-      nodes.set(id, {
-        id,
-        type: obj.type || "object",
-        fields
-      });
+      const fields = getObjectFields(obj);
+      nodes.set(id, { id, type: obj.type || "object", fields });
 
       Object.entries(fields).forEach(([key, value]) => {
-        const target = value && typeof value === "object" && value.objectId ? value.objectId : null;
-        if (!target || !ids.includes(target)) return;
+        const target = getReferenceTarget(value);
+        if (!target || !objects[target]) return;
         edges.push({ from: id, to: target, label: key });
         incoming.set(target, (incoming.get(target) || 0) + 1);
       });
     });
 
-    const roots = ids.filter(id => !incoming.has(id));
-    const startIds = roots.length ? roots : ids;
-    const seen = new Set();
+    // Prefer a horizontal linked-list layout for next -> next -> next chains.
+    const nextEdges = edges.filter(e => e.label === "next");
+    const nextTargets = new Set(nextEdges.map(e => e.to));
+    const linkedRoots = ids.filter(id => !nextTargets.has(id) && nextEdges.some(e => e.from === id));
+
     const pos = new Map();
+    const placed = new Set();
+    const NODE_W = 190;
+    const NODE_H = 126;
+    const X_GAP = 85;
+    const Y_GAP = 75;
 
-    const place = (id, depth, lane, offset = 0) => {
-      if (seen.has(id)) return;
-      seen.add(id);
-      pos.set(id, {
-        x: 30 + depth * 250 + offset,
-        y: 30 + lane * 170
-      });
-
-      const next = edges.filter(edge => edge.from === id);
-      next.forEach((edge, idx) => {
-        const childId = edge.to;
-        const childDepth = depth + 1;
-        const childLane = lane + idx;
-        place(childId, childDepth, childLane, idx > 0 ? 30 : 0);
-      });
-    };
-
-    startIds.forEach((id, idx) => place(id, 0, idx, 0));
-
-    if (!pos.size) {
-      ids.forEach((id, index) => pos.set(id, { x: 30 + index * 220, y: 30 }));
+    function placeChain(root, lane) {
+      let current = root;
+      let index = 0;
+      const localSeen = new Set();
+      while (current && !localSeen.has(current) && nodes.has(current)) {
+        localSeen.add(current);
+        if (!pos.has(current)) {
+          pos.set(current, { x: 30 + index * (NODE_W + X_GAP), y: 30 + lane * (NODE_H + Y_GAP) });
+          placed.add(current);
+        }
+        const next = nextEdges.find(edge => edge.from === current);
+        current = next ? next.to : null;
+        index++;
+      }
     }
 
+    linkedRoots.forEach((id, i) => placeChain(id, i));
+
+    // Place remaining object graphs using a compact breadth-first layout.
+    const remaining = ids.filter(id => !pos.has(id));
+    let lane = Math.max(0, linkedRoots.length);
+    remaining.forEach(root => {
+      if (pos.has(root)) return;
+      const queue = [{ id: root, depth: 0, row: lane }];
+      const localSeen = new Set();
+      while (queue.length) {
+        const item = queue.shift();
+        if (localSeen.has(item.id) || !nodes.has(item.id)) continue;
+        localSeen.add(item.id);
+        if (!pos.has(item.id)) {
+          pos.set(item.id, {
+            x: 30 + item.depth * (NODE_W + X_GAP),
+            y: 30 + item.row * (NODE_H + Y_GAP)
+          });
+        }
+        const outgoing = edges.filter(edge => edge.from === item.id);
+        outgoing.forEach((edge, idx) => {
+          if (!localSeen.has(edge.to) && !pos.has(edge.to)) {
+            queue.push({ id: edge.to, depth: item.depth + 1, row: item.row + idx });
+          }
+        });
+      }
+      lane += Math.max(1, localSeen.size);
+    });
+
+    ids.forEach((id, i) => {
+      if (!pos.has(id)) pos.set(id, { x: 30 + i * (NODE_W + X_GAP), y: 30 + lane * (NODE_H + Y_GAP) });
+    });
+
     const svgNS = "http://www.w3.org/2000/svg";
+    const width = Math.max(900, ...Array.from(pos.values()).map(p => p.x + NODE_W + 80));
+    const height = Math.max(500, ...Array.from(pos.values()).map(p => p.y + NODE_H + 80));
     const svg = document.createElementNS(svgNS, "svg");
-    const width = Math.max(900, ...Array.from(pos.values()).map(p => p.x + 220));
-    const height = Math.max(500, ...Array.from(pos.values()).map(p => p.y + 140));
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.setAttribute("width", width);
+    svg.setAttribute("height", height);
 
     const defs = document.createElementNS(svgNS, "defs");
     const marker = document.createElementNS(svgNS, "marker");
@@ -501,27 +743,39 @@ print(fib(5))`;
     defs.appendChild(marker);
     svg.appendChild(defs);
 
+    // Draw connections using the actual node geometry so arrows touch the cards.
     edges.forEach(edge => {
-      const a = pos.get(edge.from) || { x: 0, y: 0 };
-      const b = pos.get(edge.to) || { x: 0, y: 0 };
-      const x1 = a.x + 150;
-      const y1 = a.y + 55;
-      const x2 = b.x + 20;
-      const y2 = b.y + 40;
-      const midX = (x1 + x2) / 2;
+      const a = pos.get(edge.from);
+      const b = pos.get(edge.to);
+      if (!a || !b) return;
+
+      const sameRow = Math.abs(a.y - b.y) < 8;
+      const forward = b.x >= a.x;
+      const x1 = forward ? a.x + NODE_W : a.x;
+      const y1 = a.y + NODE_H / 2;
+      const x2 = forward ? b.x : b.x + NODE_W;
+      const y2 = b.y + NODE_H / 2;
       const path = document.createElementNS(svgNS, "path");
-      path.setAttribute("d", `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`);
+
+      if (sameRow) {
+        const bend = forward ? 42 : -42;
+        path.setAttribute("d", `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`);
+      } else {
+        const midX = (x1 + x2) / 2;
+        path.setAttribute("d", `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`);
+      }
       path.setAttribute("stroke", "#79b8ff");
-      path.setAttribute("stroke-width", "2.2");
+      path.setAttribute("stroke-width", edge.label === "next" ? "2.8" : "2.1");
       path.setAttribute("fill", "none");
+      path.setAttribute("opacity", edge.label === "next" ? "0.95" : "0.72");
       path.setAttribute("marker-end", "url(#memoryArrow)");
       svg.appendChild(path);
 
       const label = document.createElementNS(svgNS, "text");
-      label.setAttribute("x", midX);
-      label.setAttribute("y", Math.min(y1, y2) - 8);
+      label.setAttribute("x", (x1 + x2) / 2);
+      label.setAttribute("y", Math.min(y1, y2) - 10);
       label.setAttribute("text-anchor", "middle");
-      label.setAttribute("font-size", "10");
+      label.setAttribute("font-size", edge.label === "next" ? "10" : "9");
       label.setAttribute("fill", "#d9ecff");
       label.textContent = edge.label;
       svg.appendChild(label);
@@ -529,7 +783,7 @@ print(fib(5))`;
 
     graph.appendChild(svg);
 
-    ids.forEach((id) => {
+    ids.forEach(id => {
       const node = nodes.get(id);
       const placement = pos.get(id) || { x: 30, y: 30 };
       const fields = Object.entries(node.fields || {}).slice(0, 6);
@@ -537,6 +791,9 @@ print(fib(5))`;
       card.className = "memory-node";
       card.style.left = `${placement.x}px`;
       card.style.top = `${placement.y}px`;
+      card.style.width = `${NODE_W}px`;
+      card.style.minWidth = `${NODE_W}px`;
+      card.style.maxWidth = `${NODE_W}px`;
       card.innerHTML = `
         <div class="memory-node-header">
           <span>${esc(node.type)}</span>
@@ -561,7 +818,7 @@ print(fib(5))`;
     if (mode === "memory") renderMemoryGraph(state.events[state.step] || null);
   }
 
-  function render() {
+ {
     const e = state.events[state.step] || null;
     state.frames = reconstructFrames(state.step);
     buildChildren();
@@ -573,6 +830,7 @@ print(fib(5))`;
     updateSource(e);
     renderOverlays(e);
     renderMemoryGraph(e);
+    renderAIExplanation();
 
     el.empty.classList.toggle("hidden", state.frames.size > 0);
     el.stepText.textContent = `Step ${state.events.length ? state.step + 1 : 0} / ${state.events.length}`;
@@ -641,7 +899,9 @@ print(fib(5))`;
 
   function setStep(n) {
     if (!state.events.length) return;
-    state.step = Math.max(0, Math.min(state.events.length - 1, n));
+    const next = Math.max(0, Math.min(state.events.length - 1, n));
+    if (next !== state.step) clearAskAnswer();
+    state.step = next;
     render();
   }
 
@@ -673,6 +933,7 @@ print(fib(5))`;
     state.zoom = 1;
     state.panX = 0;
     state.panY = 0;
+    clearAskAnswer();
     render();
     fit();
   }
@@ -684,6 +945,9 @@ print(fib(5))`;
     el.run.disabled = true;
     el.run.textContent = "Running…";
     el.error.textContent = "";
+    state.semanticSteps = [];
+    state.aiExplanations = [];
+    clearAskAnswer();
 
     try {
       const r = await fetch("/api/execute", {
@@ -694,6 +958,8 @@ print(fib(5))`;
       const data = await r.json();
       if (!r.ok) throw new Error(data?.error || "Execution failed");
       state.events = Array.isArray(data) ? data : (data.events || []);
+      state.semanticSteps = Array.isArray(data.semanticSteps) ? data.semanticSteps : [];
+      state.aiExplanations = Array.isArray(data.aiExplanations) ? data.aiExplanations : [];
       state.output = data.output || state.events.find(e => e?.output)?.output || "";
       if (!state.events.length) throw new Error("No execution events returned.");
       state.step = 0;
@@ -711,7 +977,13 @@ print(fib(5))`;
   }
 
   // Source editor.
-  el.code.addEventListener("scroll", () => el.gutter.scrollTop = el.code.scrollTop);
+  el.code.addEventListener("scroll", () => {
+    el.gutter.scrollTop = el.code.scrollTop;
+    const line = Number(state.events[state.step]?.line || 0);
+    if (line) {
+      el.lineHighlight.style.top = `${11 + (line - 1) * 20 - el.code.scrollTop}px`;
+    }
+  });
   el.code.addEventListener("input", () => updateSource(state.events[state.step]));
   el.code.addEventListener("keydown", e => {
     if (e.key === "Tab") {
@@ -817,6 +1089,14 @@ print(fib(5))`;
         renderMemoryGraph(state.events[state.step] || null);
       }
     });
+  });
+
+  el.askBtn.addEventListener("click", askGenAI);
+  el.askInput.addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      askGenAI();
+    }
   });
 
   window.addEventListener("resize", () => {
