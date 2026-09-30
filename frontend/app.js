@@ -48,7 +48,7 @@ print(fib(5))`;
     executionView: $("executionView"), memoryView: $("memoryView"), memoryGraph: $("memoryGraph"),
     aiExplanation: $("aiText"), aiStep: $("aiStep"), aiText: $("aiText"),
     aiEventType: $("aiEventType"), aiEventTitle: $("aiEventTitle"), aiEventDetail: $("aiEventDetail"),
-    aiStepCount: $("aiStepCount"), aiLine: $("aiLine"), aiVariables: $("aiVariables"),
+    aiStepCount: $("aiStepCount"), aiCard: $("aiCard"), aiMaxBtn: $("aiMaxBtn"),
     askInput: $("askInput"), askBtn: $("askBtn"), askAnswer: $("askAnswer"), askStatus: $("askStatus"),
     viewButtons: [...document.querySelectorAll("[data-view]")]
   };
@@ -380,8 +380,6 @@ print(fib(5))`;
       el.aiEventType.textContent = "READY";
       el.aiEventTitle.textContent = "Run code to begin";
       el.aiEventDetail.textContent = "The current execution step will appear here.";
-      el.aiLine.textContent = "—";
-      el.aiVariables.innerHTML = '<span class="ai-empty-chip">—</span>';
       return;
     }
 
@@ -392,9 +390,9 @@ print(fib(5))`;
 
     el.aiEventType.textContent = friendlyEventType(type);
     el.aiEventTitle.textContent = `${fn} · Line ${line || "?"}`;
-    el.aiLine.textContent = String(line || "—");
 
     let detail = "";
+
     if (type === "FUNCTION_ENTER") {
       detail = `Called ${fn}(${formatArgs(e)})`;
     } else if (type === "FUNCTION_EXIT") {
@@ -404,25 +402,18 @@ print(fib(5))`;
       const result = conditionResult(e);
       detail = `Checking condition: ${condition}  →  ${result}`;
     } else if (type === "MEMORY_WRITE") {
-      detail = `Memory updated${e.key !== undefined ? `: ${valueText(e.key)}` : ""}${e.value !== undefined ? ` → ${valueText(e.value)}` : ""}`;
+      detail = "Memory state changed during this step.";
     } else if (type === "CACHE_HIT") {
       detail = "A previously computed value was reused.";
     } else if (type === "CACHE_MISS") {
       detail = "No cached value was available, so execution continues.";
     } else {
-      detail = statement ? `Executing: ${statement}` : `Executed line ${line}.`;
+      detail = statement
+        ? `Executing: ${statement}`
+        : `Executed line ${line}.`;
     }
 
     el.aiEventDetail.textContent = detail;
-
-    const vars = Object.entries(e.variables || {})
-      .filter(([k]) => !k.startsWith("__") && k !== "self");
-
-    el.aiVariables.innerHTML = vars.length
-      ? vars.slice(0, 8).map(([k, v]) =>
-          `<span class="ai-var-chip"><b>${esc(k)}</b><span>${esc(valueText(v))}</span></span>`
-        ).join("")
-      : '<span class="ai-empty-chip">No local variables</span>';
   }
 
   function friendlyEventType(type) {
@@ -509,6 +500,21 @@ print(fib(5))`;
       el.aiText.textContent = explanation.explanation;
     } else {
       el.aiText.textContent = "AI explanation is not available for this step yet.";
+    }
+  }
+
+  function toggleAIExpand() {
+    const expanded = el.aiCard.classList.toggle("ai-expanded");
+    document.body.classList.toggle("ai-modal-open", expanded);
+
+    if (expanded) {
+      el.aiMaxBtn.textContent = "×";
+      el.aiMaxBtn.title = "Close enlarged explanation";
+      el.aiMaxBtn.setAttribute("aria-label", "Close enlarged explanation");
+    } else {
+      el.aiMaxBtn.textContent = "⛶";
+      el.aiMaxBtn.title = "Maximize explanation";
+      el.aiMaxBtn.setAttribute("aria-label", "Maximize explanation");
     }
   }
 
@@ -897,6 +903,48 @@ print(fib(5))`;
     applyTransform();
   }
 
+  function render() {
+    const e = state.events[state.step] || null;
+
+    state.frames = reconstructFrames(state.step);
+    buildChildren();
+    layout();
+
+    renderFrames();
+    renderEdges();
+    renderMemory(e);
+    renderAction(e);
+    updateSource(e);
+    renderOverlays(e);
+    renderMemoryGraph(e);
+    renderAIExplanation();
+
+    el.empty.classList.toggle("hidden", state.frames.size > 0);
+
+    el.stepText.textContent =
+      `Step ${state.events.length ? state.step + 1 : 0} / ${state.events.length}`;
+
+    el.timelineEvent.textContent = e
+      ? `${e.function || "<module>"} · ${e.event || "LINE_EXECUTED"}`
+      : "";
+
+    el.range.max = Math.max(0, state.events.length - 1);
+    el.range.value = state.step;
+
+    el.output.textContent = `Output: ${state.output || "—"}`;
+
+    el.prev.disabled = state.step <= 0;
+    el.next.disabled = state.step >= state.events.length - 1;
+    el.play.textContent = state.playing ? "⏸ Pause" : "▶ Play";
+
+    if (state.follow && activeFrameId(e)) {
+      focusFrame(activeFrameId(e), false);
+    }
+
+    renderViewMode();
+    applyTransform();
+  }
+
   function setStep(n) {
     if (!state.events.length) return;
     const next = Math.max(0, Math.min(state.events.length - 1, n));
@@ -1026,7 +1074,7 @@ print(fib(5))`;
   });
 
   window.addEventListener("keydown", e => {
-    if (e.target === el.code) return;
+    if (e.target === el.code || e.target === el.askInput) return;
     if (e.code === "Space") {
       state.space = true;
       e.preventDefault();
@@ -1091,6 +1139,8 @@ print(fib(5))`;
     });
   });
 
+  el.aiMaxBtn.addEventListener("click", toggleAIExpand);
+
   el.askBtn.addEventListener("click", askGenAI);
   el.askInput.addEventListener("keydown", e => {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
@@ -1098,6 +1148,103 @@ print(fib(5))`;
       askGenAI();
     }
   });
+
+  window.addEventListener("keydown", e => {
+    if (e.key === "Escape" && el.aiCard.classList.contains("ai-expanded")) {
+      toggleAIExpand();
+    }
+  });
+  function addPanelMaximize(panel, title = "Maximize") {
+    if (!panel || panel.querySelector(".panel-max-btn")) return;
+
+    const button = document.createElement("button");
+
+    button.className = "panel-max-btn";
+    button.type = "button";
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.textContent = "⛶";
+
+    button.addEventListener("click", () => {
+        const maximized = panel.classList.toggle("panel-maximized");
+
+        button.textContent = maximized ? "✕" : "⛶";
+        button.title = maximized ? "Minimize" : title;
+        button.setAttribute(
+            "aria-label",
+            maximized ? "Minimize" : title
+        );
+
+        // Give the visualization a moment to resize.
+        requestAnimationFrame(() => {
+            if (panel === el.viewport) {
+                if (maximized) {
+                    focusFrame();
+                } else {
+                    fit();
+                }
+            }
+
+            renderMemoryGraph(
+                state.events[state.step] || null
+            );
+        });
+    });
+
+    return button;
+}
+/* =========================================
+   PANEL MAXIMIZE BUTTONS
+   ========================================= */
+
+const aiCard =
+    document.querySelector(".ai-card");
+
+const askCard =
+    document.querySelector(".ask-card");
+
+const aiMaxBtn =
+    addPanelMaximize(
+        aiCard,
+        "Maximize GenAI explanation"
+    );
+
+if (aiMaxBtn) {
+    const head =
+        aiCard.querySelector(".ai-card-head");
+
+    if (head) {
+        head.appendChild(aiMaxBtn);
+    }
+}
+
+const askMaxBtn =
+    addPanelMaximize(
+        askCard,
+        "Maximize Ask GenAI"
+    );
+
+
+if (askMaxBtn) {
+    const head =
+        askCard.querySelector(".ask-head");
+
+    if (head) {
+        head.appendChild(askMaxBtn);
+    }
+}
+
+
+
+const animationMaxBtn =
+    addPanelMaximize(
+        el.viewport,
+        "Maximize animation"
+    );
+
+if (animationMaxBtn) {
+    el.viewport.appendChild(animationMaxBtn);
+}
 
   window.addEventListener("resize", () => {
     if (state.max) focusFrame();

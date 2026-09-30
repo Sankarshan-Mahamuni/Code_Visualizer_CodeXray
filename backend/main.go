@@ -26,6 +26,11 @@ type ExplainRequest struct {
 	Code  string `json:"code"`
 	Trace any    `json:"trace"`
 }
+type AskRequest struct {
+	Code     string `json:"code"`
+	Question string `json:"question"`
+	Trace    any    `json:"trace"`
+}
 type SemanticStep struct {
 	Step        int    `json:"step"`
 	Line        int    `json:"line"`
@@ -125,7 +130,7 @@ Do not include code fences.
 
 	result, err := client.Models.GenerateContent(
 		ctx,
-		"gemini-3.6-flash",
+		"gemini-3.5-flash-lite",
 		genai.Text(prompt),
 		nil,
 	)
@@ -268,6 +273,106 @@ Keep the explanation concise and student-friendly.
 	}
 
 	json.NewEncoder(w).Encode(result)
+}
+func askHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AskRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	req.Question = strings.TrimSpace(req.Question)
+
+	if req.Question == "" {
+		http.Error(w, "Question is required", http.StatusBadRequest)
+		return
+	}
+
+	apiKey := os.Getenv("GEMINI_API_KEY")
+
+	if apiKey == "" {
+		http.Error(w, "GEMINI_API_KEY is not set", http.StatusInternalServerError)
+		return
+	}
+
+	traceJSON, err := json.Marshal(req.Trace)
+
+	if err != nil {
+		http.Error(
+			w,
+			"Could not process execution context",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	ctx := context.Background()
+
+	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+		APIKey:  apiKey,
+		Backend: genai.BackendGeminiAPI,
+	})
+
+	if err != nil {
+		http.Error(
+			w,
+			"Could not create Gemini client",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	prompt := fmt.Sprintf(`
+You are a programming tutor inside an interactive code-execution visualizer.
+
+Answer the student's question using the SOURCE CODE and VERIFIED EXECUTION CONTEXT below.
+
+SOURCE CODE:
+%s
+
+VERIFIED EXECUTION CONTEXT:
+%s
+
+STUDENT QUESTION:
+%s
+
+Rules:
+1. Treat the execution context as the source of truth for runtime facts.
+2. Do not invent variable values, function calls, memory states, or execution steps.
+3. Explain the answer in simple language suitable for a college programming student.
+4. If the question is about the current step, directly connect the answer to that step.
+5. If useful, quote a very short source-code expression, but do not repeat the whole program.
+6. If the context does not contain enough information to answer a runtime-specific question, say that clearly.
+7. Keep the answer concise: normally 2–6 sentences.
+`, req.Code, string(traceJSON), req.Question)
+
+	result, err := client.Models.GenerateContent(
+		ctx,
+		"gemini-3.5-flash-lite",
+		genai.Text(prompt),
+		nil,
+	)
+
+	if err != nil {
+		http.Error(
+			w,
+			"Gemini API error: "+err.Error(),
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"answer": strings.TrimSpace(result.Text()),
+	})
 }
 
 // ============================================================
@@ -798,6 +903,9 @@ func main() {
 		"/api/execute",
 		executeHandler,
 	)
+	http.HandleFunc(
+		"/api/ask",
+		askHandler)
 
 	// --------------------------------------------------------
 	// FRONTEND ROUTE
