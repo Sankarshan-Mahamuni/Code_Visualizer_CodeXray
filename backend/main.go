@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"google.golang.org/genai"
@@ -703,6 +706,131 @@ func humanizeMemoryEvent(event string, e map[string]any) string {
 	return event
 }
 
+func normalizeExecutionResponse(code string, execution map[string]any) map[string]any {
+	if execution == nil {
+		execution = map[string]any{}
+	}
+
+	events, _ := execution["events"].([]any)
+	eventMaps := make([]map[string]any, 0, len(events))
+
+	for _, event := range events {
+		if m, ok := event.(map[string]any); ok {
+			eventMaps = append(eventMaps, m)
+		}
+	}
+
+	semanticSteps := buildSemanticSteps(eventMaps)
+	execution["semanticSteps"] = semanticSteps
+
+	aiExplanations, err := generateAIExplanations(code, semanticSteps)
+	if err != nil {
+		fmt.Println("AI explanation error:", err)
+		aiExplanations = []AIExplanation{}
+	}
+	execution["aiExplanations"] = aiExplanations
+
+	return execution
+}
+
+func scriptPathFor(name string) string {
+	candidates := []string{
+		filepath.Join(".", name),
+		filepath.Join("backend", name),
+		filepath.Join("..", "backend", name),
+		filepath.Join("..", name),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return filepath.Join(".", name)
+}
+
+func cleanCommandOutput(output []byte) string {
+	text := strings.TrimSpace(string(output))
+	if text == "" {
+		return "Unknown error"
+	}
+	return strings.ReplaceAll(text, "\r\n", "\n")
+}
+
+func extractJavaClassName(code string) string {
+	patterns := []string{
+		`public\s+class\s+([A-Za-z_][A-Za-z0-9_]*)`,
+		`class\s+([A-Za-z_][A-Za-z0-9_]*)`,
+	}
+	for _, pattern := range patterns {
+		re := regexpMustCompile(pattern)
+		if match := re.FindStringSubmatch(code); len(match) > 1 {
+			return match[1]
+		}
+	}
+	return "Main"
+}
+
+func regexpMustCompile(pattern string) *regexp.Regexp {
+	reg, err := regexp.Compile(pattern)
+	if err != nil {
+		panic(err)
+	}
+	return reg
+}
+
+func runJava(code string) (map[string]any, error) {
+	if _, err := exec.LookPath("javac"); err != nil {
+		return nil, fmt.Errorf("Java compiler is not available")
+	}
+	if _, err := exec.LookPath("java"); err != nil {
+		return nil, fmt.Errorf("Java runtime is not available")
+	}
+
+	tempDir, err := os.MkdirTemp("", "codexray-java-*")
+	if err != nil {
+		return nil, fmt.Errorf("could not create temporary Java workspace")
+	}
+	defer os.RemoveAll(tempDir)
+
+	className := extractJavaClassName(code)
+	sourcePath := filepath.Join(tempDir, className+".java")
+	if err := os.WriteFile(sourcePath, []byte(code), 0o644); err != nil {
+		return nil, fmt.Errorf("could not write Java source file")
+	}
+
+	compileCtx, cancelCompile := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelCompile()
+	compileCmd := exec.CommandContext(compileCtx, "javac", sourcePath)
+	compileCmd.Dir = tempDir
+	compileOutput, err := compileCmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("Java compilation failed: %s", cleanCommandOutput(compileOutput))
+	}
+
+	tracerPath := scriptPathFor(filepath.Join("tracer", "java_tracer.java"))
+	tracerCompile := exec.CommandContext(compileCtx, "javac", "-d", tempDir, tracerPath)
+	tracerCompile.Dir = "."
+	tracerOutput, err := tracerCompile.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("Java tracer compilation failed: %s", cleanCommandOutput(tracerOutput))
+	}
+
+	runCtx, cancelRun := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelRun()
+	runCmd := exec.CommandContext(runCtx, "java", "-cp", tempDir, "JavaTracer", sourcePath)
+	runOutput, err := runCmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("Java execution failed: %s", cleanCommandOutput(runOutput))
+	}
+
+	var execution map[string]any
+	if err := json.Unmarshal(runOutput, &execution); err != nil {
+		return nil, fmt.Errorf("Could not parse Java execution trace")
+	}
+
+	return normalizeExecutionResponse(code, execution), nil
+}
+
 func executeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// --------------------------------------------------------
@@ -741,143 +869,63 @@ func executeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --------------------------------------------------------
-	// LANGUAGE CHECK
-	// --------------------------------------------------------
+	language := strings.ToLower(strings.TrimSpace(req.Language))
 
-	if req.Language != "python" {
-
-		http.Error(
-			w,
-			"Only Python is supported currently",
-			http.StatusBadRequest,
-		)
-
-		return
-	}
-
-	// --------------------------------------------------------
-	// CREATE TEMPORARY PYTHON FILE
-	// --------------------------------------------------------
-
-	tempFile, err := os.CreateTemp(
-		"",
-		"code-*.py",
-	)
-
-	if err != nil {
-
-		http.Error(
-			w,
-			"Could not create temporary file",
-			http.StatusInternalServerError,
-		)
-
-		return
-	}
-
-	tempFileName := tempFile.Name()
-
-	// Delete temporary file after execution.
-	defer os.Remove(tempFileName)
-
-	// --------------------------------------------------------
-	// WRITE USER CODE
-	// --------------------------------------------------------
-
-	_, err = tempFile.WriteString(
-		req.Code,
-	)
-
-	if err != nil {
-
-		tempFile.Close()
-
-		http.Error(
-			w,
-			"Could not write code",
-			http.StatusInternalServerError,
-		)
-
-		return
-	}
-
-	tempFile.Close()
-
-	// --------------------------------------------------------
-	// RUN PYTHON TRACER
-	// --------------------------------------------------------
-
-	cmd := exec.Command(
-		"python3",
-		"tracer/python_tracer.py",
-		tempFileName,
-	)
-
-	output, err := cmd.CombinedOutput()
-
-	// --------------------------------------------------------
-	// RESPONSE
-	// --------------------------------------------------------
-
-	w.Header().Set(
-		"Content-Type",
-		"application/json",
-	)
-
-	// IMPORTANT:
-	// The tracer itself produces the JSON response.
-	//
-	// Even when the user's Python code has an error,
-	// the tracer returns useful JSON containing:
-	//
-	// success
-	// events
-	// objects
-	// references
-	// output
-	// error
-
-	if err != nil {
-		http.Error(w, string(output), http.StatusInternalServerError)
-		return
-	}
+	w.Header().Set("Content-Type", "application/json")
 
 	var execution map[string]any
 
-	err = json.Unmarshal(output, &execution)
-	if err != nil {
-		http.Error(w, "Could not parse execution trace", http.StatusInternalServerError)
+	switch language {
+	case "", "python":
+		tempFile, err := os.CreateTemp("", "code-*.py")
+		if err != nil {
+			http.Error(w, "Could not create temporary file", http.StatusInternalServerError)
+			return
+		}
+		tempFileName := tempFile.Name()
+		defer os.Remove(tempFileName)
+
+		if _, err = tempFile.WriteString(req.Code); err != nil {
+			tempFile.Close()
+			http.Error(w, "Could not write code", http.StatusInternalServerError)
+			return
+		}
+		tempFile.Close()
+
+		cmd := exec.Command("python3", scriptPathFor("tracer/python_tracer.py"), tempFileName)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			http.Error(w, string(output), http.StatusInternalServerError)
+			return
+		}
+
+		err = json.Unmarshal(output, &execution)
+		if err != nil {
+			http.Error(w, "Could not parse execution trace", http.StatusInternalServerError)
+			return
+		}
+		execution = normalizeExecutionResponse(req.Code, execution)
+
+	case "java":
+		execution, err = runJava(req.Code)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]any{
+				"success":        false,
+				"events":         []map[string]any{},
+				"semanticSteps":  []SemanticStep{},
+				"aiExplanations": []AIExplanation{},
+				"objects":        map[string]any{},
+				"references":     map[string]any{},
+				"output":         "",
+				"error":          err.Error(),
+			})
+			return
+		}
+
+	default:
+		http.Error(w, "Unsupported language", http.StatusBadRequest)
 		return
 	}
-
-	events, _ := execution["events"].([]any)
-
-	eventMaps := make([]map[string]any, 0, len(events))
-
-	for _, event := range events {
-		if m, ok := event.(map[string]any); ok {
-			eventMaps = append(eventMaps, m)
-		}
-	}
-
-	semanticSteps := buildSemanticSteps(eventMaps)
-
-	execution["semanticSteps"] = semanticSteps
-
-	// Generate all AI explanations in ONE Gemini request.
-	aiExplanations, err := generateAIExplanations(req.Code, semanticSteps)
-
-	if err != nil {
-		// Code execution succeeded, so don't fail the entire request
-		// if Gemini explanation generation fails.
-		fmt.Println("AI explanation error:", err)
-		aiExplanations = []AIExplanation{}
-	}
-
-	execution["aiExplanations"] = aiExplanations
-
-	w.Header().Set("Content-Type", "application/json")
 
 	json.NewEncoder(w).Encode(execution)
 }

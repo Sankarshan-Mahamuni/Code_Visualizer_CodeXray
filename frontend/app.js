@@ -1,5 +1,6 @@
 (() => {
-  const DEFAULT_CODE = `def fib(n):
+  const DEFAULT_CODES = {
+    python: `def fib(n):
     if n <= 1:
         return n
 
@@ -7,7 +8,24 @@
     right = fib(n - 2)
     return left + right
 
-print(fib(5))`;
+print(fib(5))`,
+    java: `public class Main {
+    public static void main(String[] args) {
+        int a = 10;
+        int b = 20;
+
+        int sum = a + b;
+
+        if (sum > 20) {
+            System.out.println("Sum is greater than 20");
+        } else {
+            System.out.println("Sum is 20 or less");
+        }
+    }
+}`
+  };
+
+  const DEFAULT_CODE = DEFAULT_CODES.python;
 
   const $ = id => document.getElementById(id);
   const state = {
@@ -52,6 +70,22 @@ print(fib(5))`;
     askInput: $("askInput"), askBtn: $("askBtn"), askAnswer: $("askAnswer"), askStatus: $("askStatus"),
     viewButtons: [...document.querySelectorAll("[data-view]")]
   };
+
+  const sourceBadge = document.querySelector(".source .badge");
+
+  function applyLanguageExample(language = el.language.value) {
+    const current = el.code.value.trim();
+    const defaults = Object.values(DEFAULT_CODES).map(v => v.trim());
+    const next = DEFAULT_CODES[language] || DEFAULT_CODES.python;
+
+    if (!current || defaults.includes(current)) {
+      el.code.value = next;
+    }
+
+    if (sourceBadge) {
+      sourceBadge.textContent = language.toUpperCase();
+    }
+  }
 
   el.code.value = DEFAULT_CODE;
 
@@ -1101,6 +1135,11 @@ print(fib(5))`;
 
   window.addEventListener("keyup", e => {
     if (e.code === "Space") state.space = false;
+  });
+
+  el.language.addEventListener("change", () => {
+    applyLanguageExample(el.language.value);
+    updateSource(state.events[state.step]);
   });
 
   el.run.addEventListener("click", run);
